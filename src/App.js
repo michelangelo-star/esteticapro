@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 /* ─── CONFIG — altere apenas estas duas linhas ────────────────── */
-const SUPABASE_URL = "https://SEU_PROJETO.supabase.co";
-const SUPABASE_KEY = "SUA_CHAVE_ANON_PUBLICA";
+const SUPABASE_URL = "https://qeipimijviakflqkipiv.supabase.co";
+const SUPABASE_KEY = "sb_publishable_9zNFv1WKK-wf_Oz2GH-5-Q_XcA092xo";
 
 /* Detecta modo demo automaticamente — NÃO altere esta linha */
 const DEMO_MODE = SUPABASE_URL.includes("SEU_PROJETO");
