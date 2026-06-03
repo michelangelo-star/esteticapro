@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 /* ─── CONFIG — altere apenas estas duas linhas ────────────────── */
-const SUPABASE_URL = "https://qeipimijviakflqkipiv.supabase.co";
-const SUPABASE_KEY = "sb_publishable_9zNFv1WKK-wf_Oz2GH-5-Q_XcA092xo";
+const SUPABASE_URL = "https://SEU_PROJETO.supabase.co";
+const SUPABASE_KEY = "SUA_CHAVE_ANON_PUBLICA";
 
 /* Detecta modo demo automaticamente — NÃO altere esta linha */
 const DEMO_MODE = SUPABASE_URL.includes("SEU_PROJETO");
@@ -215,7 +215,7 @@ const fmt = v => (Number(v)||0).toLocaleString("pt-BR",{style:"currency",currenc
 const fmtN = v => (Number(v)||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const today = () => new Date().toISOString().split("T")[0];
 const fmtDate = d => d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"-";
-const fmtDateISO = d => { if(!d)return""; const p=d.split("/"); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:d; };
+const _fmtDateISO = d => { if(!d)return""; const p=d.split("/"); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:d; }; // eslint-disable-line
 const maskCPF = v => v.replace(/\D/g,"").slice(0,11).replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d{1,2})$/,"$1-$2");
 const maskFone = v => v.replace(/\D/g,"").slice(0,11).replace(/(\d{2})(\d{5})(\d)/,"($1) $2-$3");
 const maskCNPJ = v => v.replace(/\D/g,"").slice(0,14).replace(/(\d{2})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1/$2").replace(/(\d{4})(\d{1,2})$/,"$1-$2");
@@ -603,7 +603,7 @@ function AnamneseModal({ paciente, existente, onClose, onSave }) {
       <span style={{color:C.text,fontSize:13}}>{label}</span>
     </label>
   );
-  const Radio = ({label,k,value})=>(
+  const Radio = ({label,k,value})=>( // eslint-disable-line no-unused-vars
     <label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",padding:"4px 0"}}>
       <input type="radio" name={k} value={value} checked={form[k]===value} onChange={()=>f(k,value)} style={{accentColor:C.accent}}/>
       <span style={{color:C.text,fontSize:13}}>{label}</span>
@@ -2042,7 +2042,6 @@ function Financeiro({data,insert,update}) {
 
   const handleBaixa=async(item,tipo)=>{
     if(!baixaConta){alert("Selecione a conta.");return;}
-    const cont=data.contas_bancarias.find(c=>c.id===parseInt(baixaConta));
     const tabela=tipo==="receber"?"contas_receber":"contas_pagar";
     await update(tabela,item.id,{status:"quitado",conta_id:parseInt(baixaConta),data_baixa:today()});
     await insert("movimentacoes",{conta_id:parseInt(baixaConta),tipo:tipo==="receber"?"entrada":"saida",origem:tipo==="receber"?"contas_receber":"contas_pagar",origem_id:item.id,descricao:tipo==="receber"?`Recebimento — ${item.paciente||item.descricao}`:`Pagamento — ${item.descricao}`,valor:Number(item.valor)||0,data:today()});
@@ -2739,14 +2738,6 @@ function Cadastros({data,insert,update,remove}) {
     setForm(item ? {...item} : initForm);
     setModal(true);
   };
-
-  const abas = [
-    {id:"fp",label:"Formas Pgto"},
-    {id:"cb",label:"Contas/Caixa"},
-    {id:"cp",label:"Contas a Pagar"},
-    {id:"prof",label:"Profissionais"},
-    {id:"usuarios",label:"Usuários"},
-  ];
 
   return (
     <div>
