@@ -1666,16 +1666,30 @@ function Procedimentos({data,insert,update,remove}) {
   const calcSimulador=()=>{const tf=data.despesas_fixas.reduce((s,d)=>s+(Number(d.valor)||0),0);const horasMes=(Number(sim.dias_uteis)||22)*(Number(sim.horas_dia)||8);const custoHora=horasMes>0?tf/horasMes:0;const duracaoH=(Number(sim.duracao)||60)/60;const custoFixo=custoHora*duracaoH;setForm(p=>({...p,custo_fixo:custoFixo.toFixed(2),duracao_minutos:Number(sim.duracao)}));setSimModal(false);};
 
   const salvar=async()=>{
-    const custos=calcCustos(form);const rec={...form,...custos,preco_venda:Number(form.preco_venda),markup:Number(form.markup),custo_fixo:Number(form.custo_fixo),duracao_minutos:Number(form.duracao_minutos)};
+    const custos=calcCustos(form);
+    const rec={...form,...custos,preco_venda:Number(form.preco_venda),markup:Number(form.markup),custo_fixo:Number(form.custo_fixo),duracao_minutos:Number(form.duracao_minutos)};
     let procId;
-    if(editing){await update("procedimentos",editing.id,rec);procId=editing.id;}
-    else{const novo=await insert("procedimentos",rec);procId=novo?.id||Date.now();}
-    // Salvar insumos
+    if(editing){
+      await update("procedimentos",editing.id,rec);
+      procId=editing.id;
+      // Remove todos os insumos antigos antes de salvar os novos (evita duplicatas)
+      if(!DEMO_MODE){
+        await fetch(`${SUPABASE_URL}/rest/v1/procedimento_insumos?procedimento_id=eq.${procId}`,{method:"DELETE",headers:sb.h});
+      }
+    } else {
+      const novo=await insert("procedimentos",rec);
+      procId=novo?.id||Date.now();
+    }
+    // Salva insumos novos
     for(const ins of insumos){
-      if(!ins.produto_id)continue;
-      const insRec={procedimento_id:procId,produto_id:parseInt(ins.produto_id),quantidade:Number(ins.quantidade),custo_unitario:Number(ins.custo_unitario),custo_total:Number(ins.custo_total)};
-      if(ins.id&&!String(ins.id).startsWith("new")){await update("procedimento_insumos",ins.id,insRec);}
-      else{await insert("procedimento_insumos",insRec);}
+      if(!ins.produto_id) continue;
+      await insert("procedimento_insumos",{
+        procedimento_id:procId,
+        produto_id:parseInt(ins.produto_id),
+        quantidade:Number(ins.quantidade),
+        custo_unitario:Number(ins.custo_unitario),
+        custo_total:Number(ins.custo_total),
+      });
     }
     setModal(false);
   };
