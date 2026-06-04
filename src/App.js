@@ -517,7 +517,7 @@ function useData(clinicaId) {
   /* Insere um registro — injeta clinica_id automaticamente */
   const insert = async (tabela, registro) => {
     /* Tabelas que não têm clinica_id (tabelas de join simples) */
-    const semClinica = ["procedimento_insumos","atendimento_itens","compra_itens"];
+    const semClinica = ["atendimento_itens","compra_itens"];
     const comClinica = semClinica.includes(tabela) ? registro : { ...registro, clinica_id: clinicaId };
 
     if (DEMO_MODE) {
@@ -2519,17 +2519,45 @@ function Relatorios({data, insert}) {
           </div>
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:14}}>
             <h3 style={{color:C.text,fontSize:12,fontWeight:700,marginBottom:12}}>Composição de Custos</h3>
-            {[["Despesas Fixas",tf,C.danger],["Despesas Variáveis",tv,C.warn],["Lucro Líquido",Math.max(0,lucro),C.success]].map(([label,val,cor])=>(
-              <div key={label} style={{marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                  <span style={{color:C.text,fontSize:12}}>{label}</span>
-                  <span style={{color:cor,fontWeight:700,fontSize:12}}>{fmt(val)} ({rec>0?Math.round(val/rec*100):0}%)</span>
+            {(()=>{
+              const custoTotal = atsFilt.reduce((s,at)=>{
+                const itens = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
+                if(itens.length>0){
+                  // Tem itens detalhados — usa custo real de cada um
+                  return s + itens.reduce((si,item)=>{
+                    if(item.tipo==="produto"){
+                      const prod = data.produtos.find(p=>p.id===item.produto_id);
+                      return si + (Number(prod?.custo_unitario)||0)*(Number(item.quantidade)||1);
+                    }
+                    if(item.tipo==="procedimento"){
+                      const proc = data.procedimentos.find(p=>p.id===item.procedimento_id);
+                      // custo_total do procedimento já inclui insumos + custo fixo
+                      return si + (Number(proc?.custo_total)||0)*(Number(item.quantidade)||1);
+                    }
+                    return si;
+                  },0);
+                } else {
+                  // Atendimento sem itens — usa custo_total do procedimento vinculado
+                  const proc = data.procedimentos.find(p=>p.id===at.procedimento_id||p.nome===at.servico);
+                  return s + (Number(proc?.custo_total)||0);
+                }
+              },0);
+              const lucroReal = rec - custoTotal;
+              return [
+                ["Custo Total (Insumos + Custo Fixo)", custoTotal, C.danger],
+                ["Lucro Líquido", Math.max(0, lucroReal), C.success],
+              ].map(([label,val,cor])=>(
+                <div key={label} style={{marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                    <span style={{color:C.text,fontSize:12}}>{label}</span>
+                    <span style={{color:cor,fontWeight:700,fontSize:12}}>{fmt(val)} ({rec>0?Math.round(val/rec*100):0}%)</span>
+                  </div>
+                  <div style={{background:C.surface,borderRadius:20,height:5}}>
+                    <div style={{width:`${rec>0?Math.min(val/rec*100,100):0}%`,height:"100%",background:cor,borderRadius:20}}/>
+                  </div>
                 </div>
-                <div style={{background:C.surface,borderRadius:20,height:5}}>
-                  <div style={{width:`${rec>0?Math.min(val/rec*100,100):0}%`,height:"100%",background:cor,borderRadius:20}}/>
-                </div>
-              </div>
-            ))}
+              ));
+            })()}
           </div>
         </div>
       </div>}
