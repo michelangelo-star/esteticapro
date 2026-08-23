@@ -86,7 +86,10 @@ const sb = {
     } catch (e) { return { erro: "Erro de conexão com o servidor." }; }
   },
 
-  /* Cadastro de novo usuário */
+  /* Cadastro de novo usuário. Se a confirmação de e-mail estiver desativada no projeto,
+     o Supabase já retorna uma sessão ativa — nesse caso, atualiza o token para que os
+     próximos requests (ex: criar o registro do afiliado) sejam feitos autenticados,
+     e não com a anon key (o que faria a RLS rejeitar o insert). */
   async signup(email, senha) {
     try {
       const r = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
@@ -96,7 +99,8 @@ const sb = {
       });
       const dados = await r.json();
       if (dados.error) return { erro: dados.msg || dados.error };
-      return { ok: true, userId: dados.user?.id };
+      if (dados.access_token) _sessionToken = dados.access_token;
+      return { ok: true, userId: dados.user?.id || dados.id };
     } catch (e) { return { erro: "Erro de conexão." }; }
   },
 
@@ -139,6 +143,20 @@ const sb = {
       if (!r.ok || dados.erro) return { erro: dados.erro || "Não foi possível processar sua assinatura." };
       return { ok: true };
     } catch (e) { return { erro: "Erro de conexão com o servidor de pagamentos." }; }
+  },
+
+  /* Cadastro de afiliado — cria conta já confirmada via Edge Function (o projeto exige confirmação de e-mail) */
+  async cadastrarAfiliado(payload) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/afiliado-signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify(payload),
+      });
+      const dados = await r.json();
+      if (!r.ok || dados.erro) return { erro: dados.erro || "Não foi possível concluir o cadastro." };
+      return { ok: true, codigo: dados.codigo };
+    } catch (e) { return { erro: "Erro de conexão com o servidor." }; }
   },
 };
 
@@ -701,9 +719,7 @@ function useData(clinicaId) {
 
   /* Insere um registro — injeta clinica_id automaticamente */
   const insert = async (tabela, registro) => {
-    /* Tabelas que não têm clinica_id (tabelas de join simples) */
-    const semClinica = ["atendimento_itens","compra_itens"];
-    const comClinica = semClinica.includes(tabela) ? registro : { ...registro, clinica_id: clinicaId };
+    const comClinica = { ...registro, clinica_id: clinicaId };
 
     if (DEMO_MODE) {
       const novo = { ...comClinica, id: Date.now() };
@@ -2510,7 +2526,7 @@ function Procedimentos({data,insert,update,remove}) {
       procId=editing.id;
       // Remove todos os insumos antigos antes de salvar os novos (evita duplicatas)
       if(!DEMO_MODE){
-        await fetch(`${SUPABASE_URL}/rest/v1/procedimento_insumos?procedimento_id=eq.${procId}`,{method:"DELETE",headers:sb.h});
+        await fetch(`${SUPABASE_URL}/rest/v1/procedimento_insumos?procedimento_id=eq.${procId}`,{method:"DELETE",headers:getHeaders()});
       }
     } else {
       const novo=await insert("procedimentos",rec);
@@ -3527,6 +3543,8 @@ function Relatorios({data, insert}) {
   const fpList=Object.entries(porFp).sort((a,b)=>b[1]-a[1]);
 
   // Export Excel
+  /* Evita injeção de fórmula (CSV/DDE) ao abrir o arquivo no Excel */
+  const csvSafe = v => { const s=String(v??""); return /^[=+\-@]/.test(s) ? `'${s}` : s; };
   const exportExcel = (tipo) => {
     let csv="";
     if(tipo==="financeiro"){
@@ -3535,11 +3553,11 @@ function Relatorios({data, insert}) {
     }
     if(tipo==="crm"){
       csv="Nome;CPF;WhatsApp;Email;Total Gasto;Visitas;Última Visita;Dias Sem Vir;Segmento\n";
-      crmPacientes.forEach(p=>{csv+=`${p.nome};${p.cpf||""};${p.whatsapp||p.telefone||""};${p.email||""};${fmt(p.total_real)};${p.freq};${fmtDate(p.ultima_visita_real)};${p.dias_sem_vir===999?"—":p.dias_sem_vir};${p.segmento}\n`;});
+      crmPacientes.forEach(p=>{csv+=`${csvSafe(p.nome)};${csvSafe(p.cpf)};${csvSafe(p.whatsapp||p.telefone)};${csvSafe(p.email)};${fmt(p.total_real)};${p.freq};${fmtDate(p.ultima_visita_real)};${p.dias_sem_vir===999?"—":p.dias_sem_vir};${p.segmento}\n`;});
     }
     if(tipo==="procedimentos"){
       csv="Procedimento;Realizados;Receita\n";
-      porProc.forEach(p=>{csv+=`${p.nome};${p.realizados};${fmt(p.receita)}\n`;});
+      porProc.forEach(p=>{csv+=`${csvSafe(p.nome)};${p.realizados};${fmt(p.receita)}\n`;});
     }
     const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
     const url=URL.createObjectURL(blob);
@@ -4725,7 +4743,7 @@ function CadastroAfiliadoModal({onClose, onSuccess}) {
   };
 
   const percentualPadrao = 20, valorMinimoPadrao = 200, mesesInatividadePadrao = 6;
-  const [codigoGerado] = useState(()=>gerarCodigo(form.nome||"AFILIADA"));
+  const [codigoGerado,setCodigoGerado] = useState("");
 
   const validarEtapa1 = () => {
     if(!form.nome.trim()) return "Informe seu nome completo.";
@@ -4739,13 +4757,16 @@ function CadastroAfiliadoModal({onClose, onSuccess}) {
   const avancar = () => {
     const err = validarEtapa1();
     if(err){ setErro(err); return; }
-    setErro(""); setEtapa(2);
+    setErro("");
+    /* Gera o código UMA vez — o mesmo exibido no contrato deve ser o salvo ao final */
+    if(!codigoGerado) setCodigoGerado(gerarCodigo(form.nome));
+    setEtapa(2);
   };
 
   const finalizarCadastro = async () => {
     if(!assinatura){ setErro("Assine o contrato para concluir o cadastro."); return; }
     setLoading(true); setErro("");
-    const codigo = gerarCodigo(form.nome);
+    const codigo = codigoGerado;
     const textoContrato = gerarTextoContratoAfiliado({
       nome:form.nome, cpf:maskCPF(form.cpf), email:form.email, codigo,
       percentual:percentualPadrao, valorMinimo:valorMinimoPadrao, mesesInatividade:mesesInatividadePadrao,
@@ -4757,19 +4778,14 @@ function CadastroAfiliadoModal({onClose, onSuccess}) {
       onSuccess({codigo});
       return;
     }
-    try{
-      const auth = await sb.signup(form.email, form.senha);
-      if(auth.erro){ setErro(auth.erro); setLoading(false); return; }
-      await sb.post("afiliados",{
-        auth_user_id:auth.userId, nome_completo:form.nome, cpf:maskCPF(form.cpf),
-        email:form.email, telefone:maskFone(form.telefone), chave_pix:form.chave_pix,
-        tipo_chave_pix:form.tipo_chave_pix, codigo_afiliado:codigo, status:"ativo",
-        contrato_aceito_em:new Date().toISOString(), contrato_assinatura_base64:assinatura,
-        contrato_texto:textoContrato,
-      });
-      setLoading(false);
-      onSuccess({codigo});
-    }catch(e){ setErro("Erro ao cadastrar. Tente novamente."); setLoading(false); }
+    const res = await sb.cadastrarAfiliado({
+      nome:form.nome, cpf:maskCPF(form.cpf), email:form.email, telefone:maskFone(form.telefone),
+      senha:form.senha, chavePix:form.chave_pix, tipoChavePix:form.tipo_chave_pix, codigo,
+      textoContrato, assinaturaBase64:assinatura,
+    });
+    setLoading(false);
+    if(res.erro){ setErro(res.erro); return; }
+    onSuccess({codigo});
   };
 
   return(
