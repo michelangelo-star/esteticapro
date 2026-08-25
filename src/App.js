@@ -241,16 +241,25 @@ const mkDemo = () => ({
     {id:1,nome:"Materiais Botox",valor:1200,data:"2025-05-10",categoria:"Insumos"},
     {id:2,nome:"Luvas e EPIs",valor:180,data:"2025-05-12",categoria:"Insumos"},
   ],
+  contas_dre:[
+    {id:1,nome:"Receita Operacional",tipo:"receita",ordem:1,ativo:true},
+    {id:2,nome:"Outras Receitas",tipo:"receita",ordem:2,ativo:true},
+    {id:3,nome:"Despesas com Pessoal",tipo:"despesa",ordem:1,ativo:true},
+    {id:4,nome:"Despesas Administrativas",tipo:"despesa",ordem:2,ativo:true},
+    {id:5,nome:"Despesas Comerciais/Marketing",tipo:"despesa",ordem:3,ativo:true},
+    {id:6,nome:"Despesas Financeiras/Impostos",tipo:"despesa",ordem:4,ativo:true},
+    {id:7,nome:"Outras Despesas",tipo:"despesa",ordem:5,ativo:true},
+  ],
   categorias_financeiras:[
-    {id:1,nome:"Atendimentos",tipo:"receita",ativo:true},
-    {id:2,nome:"Aluguel de Salas",tipo:"receita",ativo:true},
-    {id:3,nome:"Outras Receitas",tipo:"receita",ativo:true},
-    {id:4,nome:"Aluguel/Condomínio",tipo:"despesa",ativo:true},
-    {id:5,nome:"Salários",tipo:"despesa",ativo:true},
-    {id:6,nome:"Marketing",tipo:"despesa",ativo:true},
-    {id:7,nome:"Impostos e Taxas",tipo:"despesa",ativo:true},
-    {id:8,nome:"Insumos e Produtos",tipo:"despesa",ativo:true},
-    {id:9,nome:"Outras Despesas",tipo:"despesa",ativo:true},
+    {id:1,nome:"Atendimentos",tipo:"receita",ativo:true,conta_dre_id:1},
+    {id:2,nome:"Aluguel de Salas",tipo:"receita",ativo:true,conta_dre_id:2},
+    {id:3,nome:"Outras Receitas",tipo:"receita",ativo:true,conta_dre_id:2},
+    {id:4,nome:"Aluguel/Condomínio",tipo:"despesa",ativo:true,conta_dre_id:4},
+    {id:5,nome:"Salários",tipo:"despesa",ativo:true,conta_dre_id:3},
+    {id:6,nome:"Marketing",tipo:"despesa",ativo:true,conta_dre_id:5},
+    {id:7,nome:"Impostos e Taxas",tipo:"despesa",ativo:true,conta_dre_id:6},
+    {id:8,nome:"Insumos e Produtos",tipo:"despesa",ativo:true,conta_dre_id:null},
+    {id:9,nome:"Outras Despesas",tipo:"despesa",ativo:true,conta_dre_id:7},
   ],
   contas_receber:[
     {id:1,atendimento_id:4,paciente_id:1,paciente:"Ana Paula Silva",descricao:"Drenagem Linfática",valor:180,categoria_id:1,vencimento:"2025-05-30",data_lancamento:"2025-05-23",data_competencia:"2025-05-23",status:"aberto",forma_pagamento:"PIX",conta_id:null},
@@ -663,7 +672,7 @@ function useData(clinicaId) {
         procedimento_insumos, formas_pagamento, contas_bancarias,
         pacientes, anamneses, agendamentos, atendimentos,
         despesas_fixas, despesas_variaveis,
-        contas_receber, contas_pagar, categorias_financeiras,
+        contas_receber, contas_pagar, categorias_financeiras, contas_dre,
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
@@ -684,6 +693,7 @@ function useData(clinicaId) {
         sb.get("contas_receber",      `clinica_id=eq.${cid}&order=vencimento.asc`),
         sb.get("contas_pagar",        `clinica_id=eq.${cid}&order=vencimento.asc`),
         sb.get("categorias_financeiras",`clinica_id=eq.${cid}&order=nome.asc`),
+        sb.get("contas_dre",          `clinica_id=eq.${cid}&order=ordem.asc`),
         sb.get("movimentacoes",       `clinica_id=eq.${cid}&order=data.desc`),
         sb.get("estoque_movimentacoes",`clinica_id=eq.${cid}&order=data.desc`),
         sb.get("campanhas",           `clinica_id=eq.${cid}&order=created_at.desc`),
@@ -702,7 +712,7 @@ function useData(clinicaId) {
         procedimento_insumos, formas_pagamento, contas_bancarias,
         pacientes, anamneses, agendamentos, atendimentos,
         despesas_fixas, despesas_variaveis,
-        contas_receber, contas_pagar, categorias_financeiras,
+        contas_receber, contas_pagar, categorias_financeiras, contas_dre,
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
@@ -2993,7 +3003,7 @@ function Financeiro({data,insert,update,user}) {
   const [filtM,setFiltM]=useState({conta:"",de:"",ate:""});
   const [filtFluxo,setFiltFluxo]=useState({de:"",ate:""});
   const [filtDRE,setFiltDRE]=useState(mesAtualRange());
-  const [form,setForm]=useState({descricao:"",valor:0,vencimento:today(),data_competencia:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false});
+  const [form,setForm]=useState({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false});
   const [caixaModal,setCaixaModal]=useState(null); // {tipo:'abrir'|'fechar', conta}
   const [caixaValor,setCaixaValor]=useState("");
 
@@ -3048,7 +3058,7 @@ function Financeiro({data,insert,update,user}) {
     setBaixaModal(null);setBaixaConta("");
   };
   const abrirModalLancamento = (tipo) => {
-    setForm({descricao:"",valor:0,vencimento:today(),data_competencia:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false});
+    setForm({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false});
     setModal(tipo);
   };
 
@@ -3080,7 +3090,7 @@ function Financeiro({data,insert,update,user}) {
   const totalEntradasFluxo = fluxoDados.reduce((s,d)=>s+d.entradas,0);
   const totalSaidasFluxo = fluxoDados.reduce((s,d)=>s+d.saidas,0);
 
-  // ── DRE SIMPLIFICADO — por categoria, regime de competência ──
+  // ── DRE SIMPLIFICADO — por Conta do DRE (via categoria → conta_dre), regime de competência ──
   const dentroPeriodoDRE = (dataCompetencia, vencimentoFallback) => {
     const d = dataCompetencia || vencimentoFallback;
     if(!d) return false;
@@ -3088,9 +3098,20 @@ function Financeiro({data,insert,update,user}) {
     if(filtDRE.ate && d>filtDRE.ate) return false;
     return true;
   };
-  const dreReceitasPorCategoria = categoriasReceita.map(cat=>({
-    categoria:cat, valor:data.contas_receber.filter(c=>c.categoria_id===cat.id && dentroPeriodoDRE(c.data_competencia,c.vencimento)).reduce((s,c)=>s+(Number(c.valor)||0),0),
-  })).filter(l=>l.valor>0);
+  const mapCategoriaParaContaDRE = (categoriaId) => (data.categorias_financeiras||[]).find(c=>c.id===categoriaId)?.conta_dre_id || null;
+
+  const agruparPorContaDRE = (lancamentos, tipo) => {
+    const contas = (data.contas_dre||[]).filter(cd=>cd.tipo===tipo && cd.ativo!==false).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
+    const noPeriodo = lancamentos.filter(c=>dentroPeriodoDRE(c.data_competencia,c.vencimento));
+    const linhas = contas.map(conta=>({
+      conta, valor: noPeriodo.filter(c=>mapCategoriaParaContaDRE(c.categoria_id)===conta.id).reduce((s,c)=>s+(Number(c.valor)||0),0),
+    })).filter(l=>l.valor>0);
+    const naoClassificado = noPeriodo.filter(c=>!mapCategoriaParaContaDRE(c.categoria_id)).reduce((s,c)=>s+(Number(c.valor)||0),0);
+    if(naoClassificado>0) linhas.push({conta:{id:"nc",nome:"Não classificado no DRE"}, valor:naoClassificado});
+    return linhas;
+  };
+
+  const dreReceitasPorCategoria = agruparPorContaDRE(data.contas_receber, "receita");
   const dreReceita = dreReceitasPorCategoria.reduce((s,l)=>s+l.valor,0);
   const dreCustoProdutos = data.atendimentos.reduce((s,at)=>{
     const itens=(data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
@@ -3105,9 +3126,7 @@ function Financeiro({data,insert,update,user}) {
     return s+(Number(proc?.custo_total)||0);
   },0);
   const dreComissoes = (data.comissoes||[]).reduce((s,c)=>s+(Number(c.valor_comissao)||0),0);
-  const dreDespesasPorCategoria = categoriasDespesa.map(cat=>({
-    categoria:cat, valor:data.contas_pagar.filter(c=>c.categoria_id===cat.id && dentroPeriodoDRE(c.data_competencia,c.vencimento)).reduce((s,c)=>s+(Number(c.valor)||0),0),
-  })).filter(l=>l.valor>0);
+  const dreDespesasPorCategoria = agruparPorContaDRE(data.contas_pagar, "despesa");
   const dreDespesasCategorizadas = dreDespesasPorCategoria.reduce((s,l)=>s+l.valor,0);
   const dreResultado = dreReceita - dreCustoProdutos - dreComissoes - dreDespesasCategorizadas;
 
@@ -3305,18 +3324,18 @@ function Financeiro({data,insert,update,user}) {
         </div>
       </>}
 
-      {/* DRE SIMPLIFICADO — por categoria, regime de competência */}
+      {/* DRE SIMPLIFICADO — por Conta do DRE, regime de competência */}
       {aba==="dre"&&<>
         <FilterBar filters={[{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"}]} values={filtDRE} onChange={(k,v)=>setFiltDRE(p=>({...p,[k]:v}))}/>
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:20,maxWidth:620}}>
-          <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:4}}>Demonstrativo de Resultado — por Categoria</h3>
-          <p style={{color:C.muted,fontSize:11,marginBottom:16}}>Regime de competência — considera a data de competência de cada lançamento, independente de já ter sido pago/recebido.</p>
+          <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:4}}>Demonstrativo de Resultado — por Conta do DRE</h3>
+          <p style={{color:C.muted,fontSize:11,marginBottom:16}}>Regime de competência — considera a data de competência de cada lançamento, independente de já ter sido pago/recebido. As linhas vêm de "Cadastros → Categorias → Contas do DRE".</p>
 
           <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",marginBottom:4}}>Receitas</div>
-          {dreReceitasPorCategoria.length===0 && <div style={{color:C.muted,fontSize:12,padding:"6px 0"}}>Nenhuma receita categorizada no período.</div>}
+          {dreReceitasPorCategoria.length===0 && <div style={{color:C.muted,fontSize:12,padding:"6px 0"}}>Nenhuma receita no período.</div>}
           {dreReceitasPorCategoria.map(l=>(
-            <div key={l.categoria.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
-              <span style={{color:C.text,fontSize:13}}>{l.categoria.nome}</span>
+            <div key={l.conta.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+              <span style={{color:C.text,fontSize:13}}>{l.conta.nome}</span>
               <span style={{color:C.success,fontWeight:600,fontSize:13}}>{fmt(l.valor)}</span>
             </div>
           ))}
@@ -3334,10 +3353,10 @@ function Financeiro({data,insert,update,user}) {
           ))}
 
           <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",margin:"18px 0 4px"}}>Despesas</div>
-          {dreDespesasPorCategoria.length===0 && <div style={{color:C.muted,fontSize:12,padding:"6px 0"}}>Nenhuma despesa categorizada no período.</div>}
+          {dreDespesasPorCategoria.length===0 && <div style={{color:C.muted,fontSize:12,padding:"6px 0"}}>Nenhuma despesa no período.</div>}
           {dreDespesasPorCategoria.map(l=>(
-            <div key={l.categoria.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`,paddingLeft:12}}>
-              <span style={{color:C.text,fontSize:13}}>(–) {l.categoria.nome}</span>
+            <div key={l.conta.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`,paddingLeft:12}}>
+              <span style={{color:C.text,fontSize:13}}>(–) {l.conta.nome}</span>
               <span style={{color:C.danger,fontWeight:600,fontSize:13}}>{fmt(l.valor)}</span>
             </div>
           ))}
@@ -3379,7 +3398,9 @@ function Financeiro({data,insert,update,user}) {
           <Inp label="Vencimento" type="date" value={form.vencimento} onChange={e=>setForm(f=>({...f,vencimento:e.target.value}))}/>
           <Inp label="Data de Competência" type="date" value={form.data_competencia} onChange={e=>setForm(f=>({...f,data_competencia:e.target.value}))}/>
         </div>
-        {modal==="pag"&&<label style={{display:"flex",alignItems:"center",gap:8,marginTop:10,cursor:"pointer"}}>
+        <Inp label="Data de Lançamento" type="date" value={form.data_lancamento} onChange={e=>setForm(f=>({...f,data_lancamento:e.target.value}))}/>
+        <p style={{color:C.muted,fontSize:10,marginTop:-6,marginBottom:10}}>Por padrão é hoje — mude para uma data passada se estiver registrando algo retroativo.</p>
+        {modal==="pag"&&<label style={{display:"flex",alignItems:"center",gap:8,marginTop:2,cursor:"pointer"}}>
           <input type="checkbox" checked={!!form.recorrente} onChange={e=>setForm(f=>({...f,recorrente:e.target.checked}))}/>
           <span style={{color:C.text,fontSize:12}}>Despesa recorrente (fixa, se repete todo mês)</span>
         </label>}
@@ -3387,7 +3408,7 @@ function Financeiro({data,insert,update,user}) {
           <Btn v="g" onClick={()=>setModal(null)}>Cancelar</Btn>
           <Btn onClick={async()=>{
             const v=Number(form.valor);
-            const base={descricao:form.descricao,valor:v,vencimento:form.vencimento,data_lancamento:today(),data_competencia:form.data_competencia||form.vencimento,categoria_id:form.categoria_id?Number(form.categoria_id):null,status:"aberto"};
+            const base={descricao:form.descricao,valor:v,vencimento:form.vencimento,data_lancamento:form.data_lancamento||today(),data_competencia:form.data_competencia||form.vencimento,categoria_id:form.categoria_id?Number(form.categoria_id):null,status:"aberto"};
             if(modal==="rec")await insert("contas_receber",{...base,paciente:form.paciente});
             if(modal==="pag")await insert("contas_pagar",{...base,fornecedor:form.fornecedor,recorrente:!!form.recorrente});
             setModal(null);
@@ -4023,6 +4044,7 @@ function HorarioTrabalhoEditor({profissionalId, horarios, insert, update}) {
 
 function Cadastros({data,insert,update,remove,user}) {
   const [aba,setAba] = useState("fp");
+  const [catAba,setCatAba] = useState("categorias");
   const [modal,setModal] = useState(false);
   const [editing,setEditing] = useState(null);
   const [form,setForm] = useState({});
@@ -4190,11 +4212,14 @@ function Cadastros({data,insert,update,remove,user}) {
   };
 
   const salvar = async () => {
-    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",prof:"profissionais",cat:"categorias_financeiras"};
+    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",prof:"profissionais",cat:catAba==="contasdre"?"contas_dre":"categorias_financeiras"};
     const table = tableMap[aba];
     if(!table) return;
-    if(editing){ await update(table,editing.id,form); }
-    else { await insert(table,form); }
+    let rec = form;
+    if(table==="categorias_financeiras") rec = {...form, conta_dre_id: form.conta_dre_id?Number(form.conta_dre_id):null};
+    if(table==="contas_dre") rec = {...form, ordem: Number(form.ordem)||0};
+    if(editing){ await update(table,editing.id,rec); }
+    else { await insert(table,rec); }
     setModal(false); setEditing(null); setForm({});
   };
 
@@ -4280,33 +4305,75 @@ function Cadastros({data,insert,update,remove,user}) {
         </Mod>}
       </>}
 
-      {/* CATEGORIAS FINANCEIRAS */}
+      {/* CATEGORIAS FINANCEIRAS + CONTAS DO DRE */}
       {aba==="cat"&&<>
-        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
-          <Btn onClick={()=>abrirModal(null,{nome:"",tipo:"despesa",ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
+        <div style={{display:"flex",gap:7,marginBottom:14}}>
+          {[["categorias","Categorias"],["contasdre","Contas do DRE"]].map(([id,label])=>(
+            <button key={id} onClick={()=>{setCatAba(id);setModal(false);setEditing(null);}} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${catAba===id?C.accent:C.border}`,background:catAba===id?C.accentSoft:"transparent",color:catAba===id?C.accent:C.muted,fontSize:11,fontWeight:catAba===id?700:400,cursor:"pointer"}}>{label}</button>
+          ))}
         </div>
-        <ST cols={["Categoria","Tipo","Status","Ações"]}
-          rows={(data.categorias_financeiras||[]).map(cf=>[
-            <span style={{fontWeight:600}}>{cf.nome}</span>,
-            <Badge text={cf.tipo==="receita"?"Receita":"Despesa"} color={cf.tipo==="receita"?C.success:C.danger}/>,
-            <Badge text={cf.ativo?"Ativa":"Inativa"} color={cf.ativo?C.success:C.muted}/>,
-            <div style={{display:"flex",gap:4}}>
-              <Btn v="g" onClick={()=>abrirModal(cf,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
-              <Btn v="d" onClick={()=>update("categorias_financeiras",cf.id,{ativo:!cf.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+
+        {catAba==="contasdre"&&<>
+          <p style={{color:C.muted,fontSize:11,marginBottom:11}}>As "Contas do DRE" são as linhas que aparecem no Demonstrativo de Resultado (ex: Receita Operacional, Despesas com Pessoal). Cada categoria financeira é vinculada a uma delas.</p>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
+            <Btn onClick={()=>abrirModal(null,{nome:"",tipo:"despesa",ordem:0,ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
+          </div>
+          <ST cols={["Conta do DRE","Tipo","Ordem","Status","Ações"]}
+            rows={(data.contas_dre||[]).map(cd=>[
+              <span style={{fontWeight:600}}>{cd.nome}</span>,
+              <Badge text={cd.tipo==="receita"?"Receita":"Despesa"} color={cd.tipo==="receita"?C.success:C.danger}/>,
+              <span style={{color:C.muted,fontSize:11}}>{cd.ordem||0}</span>,
+              <Badge text={cd.ativo?"Ativa":"Inativa"} color={cd.ativo?C.success:C.muted}/>,
+              <div style={{display:"flex",gap:4}}>
+                <Btn v="g" onClick={()=>abrirModal(cd,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
+                <Btn v="d" onClick={()=>update("contas_dre",cd.id,{ativo:!cd.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+              </div>
+            ])}
+            empty="Nenhuma conta do DRE cadastrada."
+          />
+          {modal&&<Mod title={editing?"Editar Conta do DRE":"Nova Conta do DRE"} onClose={()=>{setModal(false);setEditing(null);}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
+              <Sel label="Tipo" value={form.tipo||"despesa"} onChange={e=>fv("tipo",e.target.value)} options={[{value:"despesa",label:"Despesa"},{value:"receita",label:"Receita"}]}/>
+              <Inp label="Ordem de exibição" type="number" value={form.ordem||0} onChange={e=>fv("ordem",e.target.value)}/>
             </div>
-          ])}
-          empty="Nenhuma categoria cadastrada."
-        />
-        {modal&&<Mod title={editing?"Editar Categoria":"Nova Categoria"} onClose={()=>{setModal(false);setEditing(null);}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
-            <Sel label="Tipo" value={form.tipo||"despesa"} onChange={e=>fv("tipo",e.target.value)} options={[{value:"despesa",label:"Despesa"},{value:"receita",label:"Receita"}]}/>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+              <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
+              <Btn onClick={salvar}><I.Check s={12}/> Salvar</Btn>
+            </div>
+          </Mod>}
+        </>}
+
+        {catAba==="categorias"&&<>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
+            <Btn onClick={()=>abrirModal(null,{nome:"",tipo:"despesa",conta_dre_id:"",ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
           </div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
-            <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
-            <Btn onClick={salvar}><I.Check s={12}/> Salvar</Btn>
-          </div>
-        </Mod>}
+          <ST cols={["Categoria","Tipo","Conta do DRE","Status","Ações"]}
+            rows={(data.categorias_financeiras||[]).map(cf=>[
+              <span style={{fontWeight:600}}>{cf.nome}</span>,
+              <Badge text={cf.tipo==="receita"?"Receita":"Despesa"} color={cf.tipo==="receita"?C.success:C.danger}/>,
+              <span style={{color:C.muted,fontSize:11}}>{(data.contas_dre||[]).find(cd=>cd.id===cf.conta_dre_id)?.nome||"— (não entra no DRE)"}</span>,
+              <Badge text={cf.ativo?"Ativa":"Inativa"} color={cf.ativo?C.success:C.muted}/>,
+              <div style={{display:"flex",gap:4}}>
+                <Btn v="g" onClick={()=>abrirModal(cf,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
+                <Btn v="d" onClick={()=>update("categorias_financeiras",cf.id,{ativo:!cf.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+              </div>
+            ])}
+            empty="Nenhuma categoria cadastrada."
+          />
+          {modal&&<Mod title={editing?"Editar Categoria":"Nova Categoria"} onClose={()=>{setModal(false);setEditing(null);}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
+              <Sel label="Tipo" value={form.tipo||"despesa"} onChange={e=>setForm(f=>({...f,tipo:e.target.value,conta_dre_id:""}))} options={[{value:"despesa",label:"Despesa"},{value:"receita",label:"Receita"}]}/>
+            </div>
+            <Sel label="Conta do DRE (opcional — deixe em branco se não deve entrar no DRE)" value={form.conta_dre_id||""} onChange={e=>fv("conta_dre_id",e.target.value)}
+              options={[{value:"",label:"Não entra no DRE"}, ...(data.contas_dre||[]).filter(cd=>cd.tipo===(form.tipo||"despesa")&&cd.ativo!==false).map(cd=>({value:cd.id,label:cd.nome}))]}/>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+              <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
+              <Btn onClick={salvar}><I.Check s={12}/> Salvar</Btn>
+            </div>
+          </Mod>}
+        </>}
       </>}
 
       {/* PROFISSIONAIS */}
