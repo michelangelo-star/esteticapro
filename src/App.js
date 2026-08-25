@@ -3021,7 +3021,23 @@ function Financeiro({data,insert,update,user}) {
   const [filtP,setFiltP]=useState({fornecedor:"",de:"",ate:"",status:"",recorrencia:""});
   const [filtM,setFiltM]=useState({conta:"",de:"",ate:""});
   const [filtFluxo,setFiltFluxo]=useState({de:"",ate:""});
-  const [filtDRE,setFiltDRE]=useState(mesAtualRange());
+  const [dreTipoPeriodo,setDreTipoPeriodo]=useState("mensal"); // 'mensal' | 'anual'
+  const [dreRef,setDreRef]=useState(()=>new Date());
+  const filtDRE = useMemo(()=>{
+    if(dreTipoPeriodo==="anual"){
+      const ano=dreRef.getFullYear();
+      return {de:`${ano}-01-01`, ate:`${ano}-12-31`};
+    }
+    const de=new Date(dreRef.getFullYear(),dreRef.getMonth(),1);
+    const ate=new Date(dreRef.getFullYear(),dreRef.getMonth()+1,0);
+    return {de:de.toISOString().split("T")[0], ate:ate.toISOString().split("T")[0]};
+  },[dreTipoPeriodo,dreRef]);
+  const dreLabelPeriodo = dreTipoPeriodo==="anual" ? String(dreRef.getFullYear()) : dreRef.toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
+  const navegarPeriodoDRE = (delta) => setDreRef(d=>{
+    const nd=new Date(d);
+    if(dreTipoPeriodo==="anual") nd.setFullYear(nd.getFullYear()+delta); else nd.setMonth(nd.getMonth()+delta);
+    return nd;
+  });
   const [form,setForm]=useState({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false});
   const [caixaModal,setCaixaModal]=useState(null); // {tipo:'abrir'|'fechar', conta}
   const [caixaValor,setCaixaValor]=useState("");
@@ -3377,7 +3393,19 @@ function Financeiro({data,insert,update,user}) {
 
       {/* DRE — formato padrão de mercado, regime de competência */}
       {aba==="dre"&&<>
-        <FilterBar filters={[{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"}]} values={filtDRE} onChange={(k,v)=>setFiltDRE(p=>({...p,[k]:v}))}/>
+        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:6}}>
+            {[["mensal","Mensal"],["anual","Anual"]].map(([id,label])=>(
+              <button key={id} onClick={()=>setDreTipoPeriodo(id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${dreTipoPeriodo===id?C.accent:C.border}`,background:dreTipoPeriodo===id?C.accentSoft:"transparent",color:dreTipoPeriodo===id?C.accent:C.muted,fontSize:11,fontWeight:dreTipoPeriodo===id?700:400,cursor:"pointer"}}>{label}</button>
+            ))}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>navegarPeriodoDRE(-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:30,height:30,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={13} style={{transform:"rotate(180deg)"}}/></button>
+            <span style={{color:C.text,fontWeight:700,fontSize:13,minWidth:110,textAlign:"center",textTransform:"capitalize"}}>{dreLabelPeriodo}</span>
+            <button onClick={()=>navegarPeriodoDRE(1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:30,height:30,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={13}/></button>
+          </div>
+          <button onClick={()=>setDreRef(new Date())} style={{background:"none",border:"none",color:C.accent,fontSize:11,fontWeight:600,cursor:"pointer"}}>Ir para hoje</button>
+        </div>
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:20,maxWidth:640}}>
           <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:4}}>Demonstrativo de Resultado do Exercício (DRE)</h3>
           <p style={{color:C.muted,fontSize:11,marginBottom:16}}>Regime de competência. As contas de cada grupo vêm de "Cadastros → Categorias → Contas do DRE".</p>
