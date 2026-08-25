@@ -242,24 +242,30 @@ const mkDemo = () => ({
     {id:2,nome:"Luvas e EPIs",valor:180,data:"2025-05-12",categoria:"Insumos"},
   ],
   contas_dre:[
-    {id:1,nome:"Receita Operacional",tipo:"receita",ordem:1,ativo:true},
-    {id:2,nome:"Outras Receitas",tipo:"receita",ordem:2,ativo:true},
-    {id:3,nome:"Despesas com Pessoal",tipo:"despesa",ordem:1,ativo:true},
-    {id:4,nome:"Despesas Administrativas",tipo:"despesa",ordem:2,ativo:true},
-    {id:5,nome:"Despesas Comerciais/Marketing",tipo:"despesa",ordem:3,ativo:true},
-    {id:6,nome:"Despesas Financeiras/Impostos",tipo:"despesa",ordem:4,ativo:true},
-    {id:7,nome:"Outras Despesas",tipo:"despesa",ordem:5,ativo:true},
+    {id:1,nome:"Receita de Serviços (Atendimentos)",tipo:"receita",grupo:"receita_bruta",ordem:1,ativo:true},
+    {id:2,nome:"Receita de Aluguel de Salas",tipo:"receita",grupo:"receita_bruta",ordem:2,ativo:true},
+    {id:3,nome:"Outras Receitas Operacionais",tipo:"receita",grupo:"receita_bruta",ordem:3,ativo:true},
+    {id:4,nome:"Impostos sobre Serviços (ISS/Simples)",tipo:"despesa",grupo:"deducoes",ordem:1,ativo:true},
+    {id:5,nome:"Descontos e Devoluções",tipo:"despesa",grupo:"deducoes",ordem:2,ativo:true},
+    {id:6,nome:"Custo dos Serviços Prestados",tipo:"despesa",grupo:"custos",ordem:1,ativo:true},
+    {id:7,nome:"Despesas com Pessoal",tipo:"despesa",grupo:"despesas_operacionais",ordem:1,ativo:true},
+    {id:8,nome:"Despesas Administrativas",tipo:"despesa",grupo:"despesas_operacionais",ordem:2,ativo:true},
+    {id:9,nome:"Despesas Comerciais/Marketing",tipo:"despesa",grupo:"despesas_operacionais",ordem:3,ativo:true},
+    {id:10,nome:"Despesas Gerais",tipo:"despesa",grupo:"despesas_operacionais",ordem:4,ativo:true},
+    {id:11,nome:"Receitas Financeiras",tipo:"receita",grupo:"receitas_financeiras",ordem:1,ativo:true},
+    {id:12,nome:"Despesas Financeiras e Taxas Bancárias",tipo:"despesa",grupo:"despesas_financeiras",ordem:1,ativo:true},
+    {id:13,nome:"IR/CSLL",tipo:"despesa",grupo:"impostos_lucro",ordem:1,ativo:true},
   ],
   categorias_financeiras:[
     {id:1,nome:"Atendimentos",tipo:"receita",ativo:true,conta_dre_id:1},
     {id:2,nome:"Aluguel de Salas",tipo:"receita",ativo:true,conta_dre_id:2},
-    {id:3,nome:"Outras Receitas",tipo:"receita",ativo:true,conta_dre_id:2},
-    {id:4,nome:"Aluguel/Condomínio",tipo:"despesa",ativo:true,conta_dre_id:4},
-    {id:5,nome:"Salários",tipo:"despesa",ativo:true,conta_dre_id:3},
-    {id:6,nome:"Marketing",tipo:"despesa",ativo:true,conta_dre_id:5},
-    {id:7,nome:"Impostos e Taxas",tipo:"despesa",ativo:true,conta_dre_id:6},
+    {id:3,nome:"Outras Receitas",tipo:"receita",ativo:true,conta_dre_id:3},
+    {id:4,nome:"Aluguel/Condomínio",tipo:"despesa",ativo:true,conta_dre_id:8},
+    {id:5,nome:"Salários",tipo:"despesa",ativo:true,conta_dre_id:7},
+    {id:6,nome:"Marketing",tipo:"despesa",ativo:true,conta_dre_id:9},
+    {id:7,nome:"Impostos e Taxas",tipo:"despesa",ativo:true,conta_dre_id:4},
     {id:8,nome:"Insumos e Produtos",tipo:"despesa",ativo:true,conta_dre_id:null},
-    {id:9,nome:"Outras Despesas",tipo:"despesa",ativo:true,conta_dre_id:7},
+    {id:9,nome:"Outras Despesas",tipo:"despesa",ativo:true,conta_dre_id:10},
   ],
   contas_receber:[
     {id:1,atendimento_id:4,paciente_id:1,paciente:"Ana Paula Silva",descricao:"Drenagem Linfática",valor:180,categoria_id:1,vencimento:"2025-05-30",data_lancamento:"2025-05-23",data_competencia:"2025-05-23",status:"aberto",forma_pagamento:"PIX",conta_id:null},
@@ -316,6 +322,19 @@ const fmt = v => (Number(v)||0).toLocaleString("pt-BR",{style:"currency",currenc
 const fmtN = v => (Number(v)||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const today = () => new Date().toISOString().split("T")[0];
 const mesAtualRange = () => { const h=new Date(); const de=new Date(h.getFullYear(),h.getMonth(),1); const ate=new Date(h.getFullYear(),h.getMonth()+1,0); return {de:de.toISOString().split("T")[0], ate:ate.toISOString().split("T")[0]}; };
+
+/* Estrutura padrão de DRE gerencial — os 7 grupos são fixos (formato de mercado);
+   as contas dentro de cada grupo são livres/cadastráveis pelo usuário.        */
+const GRUPOS_DRE = [
+  {id:"receita_bruta",         label:"Receita Operacional Bruta",       tipo:"receita"},
+  {id:"deducoes",               label:"Deduções da Receita",             tipo:"despesa"},
+  {id:"custos",                 label:"Custo dos Serviços Prestados",    tipo:"despesa"},
+  {id:"despesas_operacionais",  label:"Despesas Operacionais",           tipo:"despesa"},
+  {id:"receitas_financeiras",   label:"Receitas Financeiras",            tipo:"receita"},
+  {id:"despesas_financeiras",   label:"Despesas Financeiras",            tipo:"despesa"},
+  {id:"impostos_lucro",         label:"Impostos sobre o Lucro (IR/CSLL)",tipo:"despesa"},
+];
+const grupoDRE = (id) => GRUPOS_DRE.find(g=>g.id===id);
 const fmtDate = d => d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"-";
 const _fmtDateISO = d => { if(!d)return""; const p=d.split("/"); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:d; }; // eslint-disable-line
 const maskCPF = v => v.replace(/\D/g,"").slice(0,11).replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d{1,2})$/,"$1-$2");
@@ -3090,7 +3109,9 @@ function Financeiro({data,insert,update,user}) {
   const totalEntradasFluxo = fluxoDados.reduce((s,d)=>s+d.entradas,0);
   const totalSaidasFluxo = fluxoDados.reduce((s,d)=>s+d.saidas,0);
 
-  // ── DRE SIMPLIFICADO — por Conta do DRE (via categoria → conta_dre), regime de competência ──
+  // ── DRE — formato padrão de mercado (Receita Bruta → Deduções → Receita Líquida →
+  //    Custos → Lucro Bruto → Despesas Operacionais → Resultado Operacional →
+  //    Resultado Financeiro → LAIR → Impostos sobre o Lucro → Lucro Líquido) ──
   const dentroPeriodoDRE = (dataCompetencia, vencimentoFallback) => {
     const d = dataCompetencia || vencimentoFallback;
     if(!d) return false;
@@ -3099,20 +3120,29 @@ function Financeiro({data,insert,update,user}) {
     return true;
   };
   const mapCategoriaParaContaDRE = (categoriaId) => (data.categorias_financeiras||[]).find(c=>c.id===categoriaId)?.conta_dre_id || null;
-
-  const agruparPorContaDRE = (lancamentos, tipo) => {
-    const contas = (data.contas_dre||[]).filter(cd=>cd.tipo===tipo && cd.ativo!==false).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
-    const noPeriodo = lancamentos.filter(c=>dentroPeriodoDRE(c.data_competencia,c.vencimento));
-    const linhas = contas.map(conta=>({
+  const lancamentosDoGrupo = (grupoId) => grupoDRE(grupoId)?.tipo==="receita" ? data.contas_receber : data.contas_pagar;
+  const linhasDoGrupo = (grupoId) => {
+    const contas = (data.contas_dre||[]).filter(cd=>cd.grupo===grupoId && cd.ativo!==false).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
+    const noPeriodo = lancamentosDoGrupo(grupoId).filter(c=>dentroPeriodoDRE(c.data_competencia,c.vencimento));
+    return contas.map(conta=>({
       conta, valor: noPeriodo.filter(c=>mapCategoriaParaContaDRE(c.categoria_id)===conta.id).reduce((s,c)=>s+(Number(c.valor)||0),0),
     })).filter(l=>l.valor>0);
-    const naoClassificado = noPeriodo.filter(c=>!mapCategoriaParaContaDRE(c.categoria_id)).reduce((s,c)=>s+(Number(c.valor)||0),0);
-    if(naoClassificado>0) linhas.push({conta:{id:"nc",nome:"Não classificado no DRE"}, valor:naoClassificado});
-    return linhas;
   };
+  const somaLinhas = (linhas) => linhas.reduce((s,l)=>s+l.valor,0);
 
-  const dreReceitasPorCategoria = agruparPorContaDRE(data.contas_receber, "receita");
-  const dreReceita = dreReceitasPorCategoria.reduce((s,l)=>s+l.valor,0);
+  // 1. Receita Operacional Bruta (+ receitas sem categoria vinculada a nenhuma conta do DRE)
+  const dreReceitaBrutaLinhas = linhasDoGrupo("receita_bruta");
+  const receitaNaoClassificada = data.contas_receber.filter(c=>dentroPeriodoDRE(c.data_competencia,c.vencimento)&&!mapCategoriaParaContaDRE(c.categoria_id)).reduce((s,c)=>s+(Number(c.valor)||0),0);
+  if(receitaNaoClassificada>0) dreReceitaBrutaLinhas.push({conta:{id:"nc-r",nome:"Outras receitas (não classificadas)"}, valor:receitaNaoClassificada});
+  const dreReceitaBruta = somaLinhas(dreReceitaBrutaLinhas);
+
+  // 2. (-) Deduções da Receita → 3. Receita Operacional Líquida
+  const dreDeducoesLinhas = linhasDoGrupo("deducoes");
+  const dreDeducoes = somaLinhas(dreDeducoesLinhas);
+  const dreReceitaLiquida = dreReceitaBruta - dreDeducoes;
+
+  // 4. (-) Custo dos Serviços Prestados (categorizado manualmente + consumo automático de insumos) → 5. Lucro Bruto
+  const dreCustosLinhas = linhasDoGrupo("custos");
   const dreCustoProdutos = data.atendimentos.reduce((s,at)=>{
     const itens=(data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
     if(itens.length>0){
@@ -3125,10 +3155,31 @@ function Financeiro({data,insert,update,user}) {
     const proc=data.procedimentos.find(p=>p.id===at.procedimento_id||p.nome===at.servico);
     return s+(Number(proc?.custo_total)||0);
   },0);
+  if(dreCustoProdutos>0) dreCustosLinhas.push({conta:{id:"auto-custo",nome:"Consumo de insumos em atendimentos"}, valor:dreCustoProdutos});
+  const dreCustosTotal = somaLinhas(dreCustosLinhas);
+  const dreLucroBruto = dreReceitaLiquida - dreCustosTotal;
+
+  // 6. (-) Despesas Operacionais (comissões automáticas + categorizadas + não classificadas) → 7. Resultado Operacional
+  const dreDespOperLinhas = linhasDoGrupo("despesas_operacionais");
   const dreComissoes = (data.comissoes||[]).reduce((s,c)=>s+(Number(c.valor_comissao)||0),0);
-  const dreDespesasPorCategoria = agruparPorContaDRE(data.contas_pagar, "despesa");
-  const dreDespesasCategorizadas = dreDespesasPorCategoria.reduce((s,l)=>s+l.valor,0);
-  const dreResultado = dreReceita - dreCustoProdutos - dreComissoes - dreDespesasCategorizadas;
+  if(dreComissoes>0) dreDespOperLinhas.push({conta:{id:"auto-comissao",nome:"Comissões de profissionais"}, valor:dreComissoes});
+  const despesaNaoClassificada = data.contas_pagar.filter(c=>dentroPeriodoDRE(c.data_competencia,c.vencimento)&&!mapCategoriaParaContaDRE(c.categoria_id)).reduce((s,c)=>s+(Number(c.valor)||0),0);
+  if(despesaNaoClassificada>0) dreDespOperLinhas.push({conta:{id:"nc-d",nome:"Outras despesas (não classificadas)"}, valor:despesaNaoClassificada});
+  const dreDespOperTotal = somaLinhas(dreDespOperLinhas);
+  const dreResultadoOperacional = dreLucroBruto - dreDespOperTotal;
+
+  // 8. (+) Receitas Financeiras / (-) Despesas Financeiras → 9. Resultado Antes do IR/CSLL (LAIR)
+  const dreReceitasFinLinhas = linhasDoGrupo("receitas_financeiras");
+  const dreReceitasFin = somaLinhas(dreReceitasFinLinhas);
+  const dreDespesasFinLinhas = linhasDoGrupo("despesas_financeiras");
+  const dreDespesasFin = somaLinhas(dreDespesasFinLinhas);
+  const dreLAIR = dreResultadoOperacional + dreReceitasFin - dreDespesasFin;
+
+  // 10. (-) Impostos sobre o Lucro → 11. Lucro Líquido do Exercício
+  const dreImpostosLucroLinhas = linhasDoGrupo("impostos_lucro");
+  const dreImpostosLucro = somaLinhas(dreImpostosLucroLinhas);
+  const dreResultado = dreLAIR - dreImpostosLucro;
+  const dreReceita = dreReceitaBruta; // usado no rótulo da aba e na margem
 
   // ── CAIXA DO DIA ──
   const caixasHoje = (data.caixa_diario||[]).filter(c=>c.data===today());
@@ -3324,48 +3375,43 @@ function Financeiro({data,insert,update,user}) {
         </div>
       </>}
 
-      {/* DRE SIMPLIFICADO — por Conta do DRE, regime de competência */}
+      {/* DRE — formato padrão de mercado, regime de competência */}
       {aba==="dre"&&<>
         <FilterBar filters={[{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"}]} values={filtDRE} onChange={(k,v)=>setFiltDRE(p=>({...p,[k]:v}))}/>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:20,maxWidth:620}}>
-          <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:4}}>Demonstrativo de Resultado — por Conta do DRE</h3>
-          <p style={{color:C.muted,fontSize:11,marginBottom:16}}>Regime de competência — considera a data de competência de cada lançamento, independente de já ter sido pago/recebido. As linhas vêm de "Cadastros → Categorias → Contas do DRE".</p>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:20,maxWidth:640}}>
+          <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:4}}>Demonstrativo de Resultado do Exercício (DRE)</h3>
+          <p style={{color:C.muted,fontSize:11,marginBottom:16}}>Regime de competência. As contas de cada grupo vêm de "Cadastros → Categorias → Contas do DRE".</p>
 
-          <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",marginBottom:4}}>Receitas</div>
-          {dreReceitasPorCategoria.length===0 && <div style={{color:C.muted,fontSize:12,padding:"6px 0"}}>Nenhuma receita no período.</div>}
-          {dreReceitasPorCategoria.map(l=>(
-            <div key={l.conta.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
-              <span style={{color:C.text,fontSize:13}}>{l.conta.nome}</span>
-              <span style={{color:C.success,fontWeight:600,fontSize:13}}>{fmt(l.valor)}</span>
-            </div>
-          ))}
-          <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",fontWeight:700}}>
-            <span style={{color:C.text,fontSize:13}}>Receita Total</span>
-            <span style={{color:C.success,fontSize:13}}>{fmt(dreReceita)}</span>
-          </div>
-
-          <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",margin:"18px 0 4px"}}>Custos Operacionais</div>
-          {[["Custo de Produtos e Insumos",dreCustoProdutos],["Comissões de Profissionais",dreComissoes]].map(([label,val])=>(
-            <div key={label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`,paddingLeft:12}}>
-              <span style={{color:C.text,fontSize:13}}>(–) {label}</span>
-              <span style={{color:C.danger,fontWeight:600,fontSize:13}}>{fmt(val)}</span>
-            </div>
-          ))}
-
-          <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",margin:"18px 0 4px"}}>Despesas</div>
-          {dreDespesasPorCategoria.length===0 && <div style={{color:C.muted,fontSize:12,padding:"6px 0"}}>Nenhuma despesa no período.</div>}
-          {dreDespesasPorCategoria.map(l=>(
-            <div key={l.conta.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`,paddingLeft:12}}>
-              <span style={{color:C.text,fontSize:13}}>(–) {l.conta.nome}</span>
-              <span style={{color:C.danger,fontWeight:600,fontSize:13}}>{fmt(l.valor)}</span>
+          {[
+            {titulo:"Receita Operacional Bruta", linhas:dreReceitaBrutaLinhas, subtotalLabel:null, cor:C.success},
+            {titulo:"(–) Deduções da Receita", linhas:dreDeducoesLinhas, subtotalLabel:"(=) Receita Operacional Líquida", subtotal:dreReceitaLiquida, cor:C.danger},
+            {titulo:"(–) Custo dos Serviços Prestados", linhas:dreCustosLinhas, subtotalLabel:"(=) Lucro Bruto", subtotal:dreLucroBruto, cor:C.danger},
+            {titulo:"(–) Despesas Operacionais", linhas:dreDespOperLinhas, subtotalLabel:"(=) Resultado Operacional (EBIT)", subtotal:dreResultadoOperacional, cor:C.danger},
+            {titulo:"(+) Receitas Financeiras", linhas:dreReceitasFinLinhas, subtotalLabel:null, cor:C.success},
+            {titulo:"(–) Despesas Financeiras", linhas:dreDespesasFinLinhas, subtotalLabel:"(=) Resultado Antes do IR/CSLL", subtotal:dreLAIR, cor:C.danger},
+            {titulo:"(–) Impostos sobre o Lucro (IR/CSLL)", linhas:dreImpostosLucroLinhas, subtotalLabel:null, cor:C.danger},
+          ].map((secao,i)=>(
+            <div key={i}>
+              <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",margin:i===0?"0 0 4px":"16px 0 4px"}}>{secao.titulo}</div>
+              {secao.linhas.length===0 && <div style={{color:C.muted,fontSize:12,padding:"4px 0 4px 12px"}}>Nada lançado no período.</div>}
+              {secao.linhas.map(l=>(
+                <div key={l.conta.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`,paddingLeft:12}}>
+                  <span style={{color:C.text,fontSize:13}}>{l.conta.nome}</span>
+                  <span style={{color:secao.cor,fontWeight:600,fontSize:13}}>{fmt(l.valor)}</span>
+                </div>
+              ))}
+              {secao.subtotalLabel&&<div style={{display:"flex",justifyContent:"space-between",padding:"7px 0",marginTop:2,fontWeight:700,borderTop:`1px solid ${C.border}`}}>
+                <span style={{color:C.text,fontSize:13}}>{secao.subtotalLabel}</span>
+                <span style={{color:secao.subtotal>=0?C.success:C.danger,fontSize:13}}>{fmt(secao.subtotal)}</span>
+              </div>}
             </div>
           ))}
 
-          <div style={{display:"flex",justifyContent:"space-between",padding:"14px 0 4px",marginTop:6}}>
-            <span style={{color:C.text,fontSize:15,fontWeight:700}}>Resultado Líquido</span>
+          <div style={{display:"flex",justifyContent:"space-between",padding:"14px 0 4px",marginTop:10,borderTop:`2px solid ${C.text}`}}>
+            <span style={{color:C.text,fontSize:15,fontWeight:700}}>Lucro Líquido do Exercício</span>
             <span style={{color:dreResultado>=0?C.success:C.danger,fontWeight:700,fontSize:18}}>{fmt(dreResultado)}</span>
           </div>
-          <div style={{color:C.muted,fontSize:11,marginTop:4}}>Margem líquida: {dreReceita>0?Math.round(dreResultado/dreReceita*100):0}%</div>
+          <div style={{color:C.muted,fontSize:11,marginTop:4}}>Margem bruta: {dreReceitaLiquida>0?Math.round(dreLucroBruto/dreReceitaLiquida*100):0}% · Margem líquida: {dreReceitaBruta>0?Math.round(dreResultado/dreReceitaBruta*100):0}%</div>
         </div>
       </>}
 
@@ -4217,7 +4263,7 @@ function Cadastros({data,insert,update,remove,user}) {
     if(!table) return;
     let rec = form;
     if(table==="categorias_financeiras") rec = {...form, conta_dre_id: form.conta_dre_id?Number(form.conta_dre_id):null};
-    if(table==="contas_dre") rec = {...form, ordem: Number(form.ordem)||0};
+    if(table==="contas_dre") rec = {...form, ordem: Number(form.ordem)||0, tipo: grupoDRE(form.grupo)?.tipo||"despesa"};
     if(editing){ await update(table,editing.id,rec); }
     else { await insert(table,rec); }
     setModal(false); setEditing(null); setForm({});
@@ -4314,27 +4360,35 @@ function Cadastros({data,insert,update,remove,user}) {
         </div>
 
         {catAba==="contasdre"&&<>
-          <p style={{color:C.muted,fontSize:11,marginBottom:11}}>As "Contas do DRE" são as linhas que aparecem no Demonstrativo de Resultado (ex: Receita Operacional, Despesas com Pessoal). Cada categoria financeira é vinculada a uma delas.</p>
+          <p style={{color:C.muted,fontSize:11,marginBottom:11}}>As "Contas do DRE" são as linhas do Demonstrativo de Resultado. Os 7 grupos seguem o formato padrão contábil (Receita Bruta, Deduções, Custos, Despesas Operacionais, Resultado Financeiro, Impostos) — dentro de cada grupo você cadastra as contas que fizerem sentido pra sua clínica.</p>
           <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
-            <Btn onClick={()=>abrirModal(null,{nome:"",tipo:"despesa",ordem:0,ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
+            <Btn onClick={()=>abrirModal(null,{nome:"",grupo:"despesas_operacionais",ordem:0,ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
           </div>
-          <ST cols={["Conta do DRE","Tipo","Ordem","Status","Ações"]}
-            rows={(data.contas_dre||[]).map(cd=>[
-              <span style={{fontWeight:600}}>{cd.nome}</span>,
-              <Badge text={cd.tipo==="receita"?"Receita":"Despesa"} color={cd.tipo==="receita"?C.success:C.danger}/>,
-              <span style={{color:C.muted,fontSize:11}}>{cd.ordem||0}</span>,
-              <Badge text={cd.ativo?"Ativa":"Inativa"} color={cd.ativo?C.success:C.muted}/>,
-              <div style={{display:"flex",gap:4}}>
-                <Btn v="g" onClick={()=>abrirModal(cd,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
-                <Btn v="d" onClick={()=>update("contas_dre",cd.id,{ativo:!cd.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+          {GRUPOS_DRE.map(g=>{
+            const contas=(data.contas_dre||[]).filter(cd=>cd.grupo===g.id).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
+            if(contas.length===0) return null;
+            return(
+              <div key={g.id} style={{marginBottom:16}}>
+                <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",marginBottom:6}}>{g.label}</div>
+                <ST cols={["Conta do DRE","Ordem","Status","Ações"]}
+                  rows={contas.map(cd=>[
+                    <span style={{fontWeight:600}}>{cd.nome}</span>,
+                    <span style={{color:C.muted,fontSize:11}}>{cd.ordem||0}</span>,
+                    <Badge text={cd.ativo?"Ativa":"Inativa"} color={cd.ativo?C.success:C.muted}/>,
+                    <div style={{display:"flex",gap:4}}>
+                      <Btn v="g" onClick={()=>abrirModal(cd,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
+                      <Btn v="d" onClick={()=>update("contas_dre",cd.id,{ativo:!cd.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+                    </div>
+                  ])}
+                />
               </div>
-            ])}
-            empty="Nenhuma conta do DRE cadastrada."
-          />
+            );
+          })}
+          {(data.contas_dre||[]).length===0 && <p style={{color:C.muted,fontSize:13,textAlign:"center",padding:20}}>Nenhuma conta do DRE cadastrada.</p>}
           {modal&&<Mod title={editing?"Editar Conta do DRE":"Nova Conta do DRE"} onClose={()=>{setModal(false);setEditing(null);}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
-              <Sel label="Tipo" value={form.tipo||"despesa"} onChange={e=>fv("tipo",e.target.value)} options={[{value:"despesa",label:"Despesa"},{value:"receita",label:"Receita"}]}/>
+              <Sel label="Grupo do DRE" value={form.grupo||"despesas_operacionais"} onChange={e=>fv("grupo",e.target.value)} options={GRUPOS_DRE.map(g=>({value:g.id,label:g.label}))} style={{gridColumn:"1/-1"}}/>
               <Inp label="Ordem de exibição" type="number" value={form.ordem||0} onChange={e=>fv("ordem",e.target.value)}/>
             </div>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
