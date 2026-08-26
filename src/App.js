@@ -4156,6 +4156,9 @@ function Precos({data, update}) {
   const nA = data.atendimentos.length || 1;
   const cpA = (tf+tv)/nA;
 
+  const pctSimples = Number(data.empresa?.percentual_simples)||0;
+  const pctCartao = Number(data.empresa?.taxa_cartao_padrao)||0;
+
   // Grid unificado: procedimentos + produtos
   const itens = useMemo(() => {
     const procs = data.procedimentos.filter(p=>p.ativo).map(p=>({
@@ -4181,8 +4184,16 @@ function Precos({data, update}) {
     let lista = [...procs, ...prods];
     if(filt.busca) lista = lista.filter(i=>i.nome.toLowerCase().includes(filt.busca.toLowerCase())||i.categoria?.toLowerCase().includes(filt.busca.toLowerCase()));
     if(filt.tipo) lista = lista.filter(i=>i._tipo===filt.tipo);
-    return lista;
-  }, [data.procedimentos, data.produtos, filt]);
+    /* Custo de taxa de cartão + imposto do Simples, como % sobre o preço de venda
+       (só incidem na hora da venda — não fazem parte do custo_total de insumos/fixo) */
+    return lista.map(i=>{
+      const custoTaxaCartao = i.preco*pctCartao/100;
+      const custoImposto = i.preco*pctSimples/100;
+      const custoTotalComTaxas = i.custo_total+custoTaxaCartao+custoImposto;
+      const margemLiquida = i.preco>0 ? Math.round((i.preco-custoTotalComTaxas)/i.preco*100) : 0;
+      return {...i, custoTaxaCartao, custoImposto, custoTotalComTaxas, margemLiquida};
+    });
+  }, [data.procedimentos, data.produtos, filt, pctCartao, pctSimples]);
 
   // Inicializar valores de edição
   const startEdit = () => {
@@ -4256,20 +4267,25 @@ function Precos({data, update}) {
         <I.Edit c={C.info} s={14}/><span style={{color:C.info,fontSize:12}}>Modo edição ativo — altere preços ou markup linha a linha e clique em <strong>Atualizar</strong>, ou clique em <strong>Salvar Todos</strong>.</span>
       </div>}
 
+      {pctSimples===0&&pctCartao===0&&<div style={{background:C.warn+"12",border:`1px solid ${C.warn}30`,borderRadius:9,padding:"9px 13px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+        <I.Warn c={C.warn} s={14}/><span style={{color:C.warn,fontSize:12}}>Percentual do Simples e taxa de cartão ainda não configurados — cadastre em <strong>Cadastros → Empresa</strong> pra ver a margem líquida real.</span>
+      </div>}
+
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,overflow:"hidden"}}>
         <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
             <thead><tr style={{background:C.surface}}>
-              {["Nome","Tipo","Categoria","Custo Insumos","Custo Fixo","Custo Total","Markup %","Preço Venda","Margem",""].map(h=>(
+              {["Nome","Tipo","Categoria","Custo Insumos","Custo Fixo","Taxa Cartão","Imposto Simples","Custo Total c/ Taxas","Markup %","Preço Venda","Margem Bruta","Margem Líquida",""].map(h=>(
                 <th key={h} style={{padding:"9px 12px",textAlign:"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:.8,fontWeight:600,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr></thead>
             <tbody>
-              {itens.length===0&&<tr><td colSpan={10} style={{padding:24,textAlign:"center",color:C.muted,fontSize:13}}>Nenhum item encontrado.</td></tr>}
+              {itens.length===0&&<tr><td colSpan={13} style={{padding:24,textAlign:"center",color:C.muted,fontSize:13}}>Nenhum item encontrado.</td></tr>}
               {itens.map(item=>{
                 const vals = editValues[item.id]||{preco:item.preco,markup:item.markup};
                 const margem = editMode ? calcMargem(Number(vals.preco),item.custo_total) : item.margem;
                 const corM = margem>60?C.success:margem>35?C.warn:C.danger;
+                const corML = item.margemLiquida>60?C.success:item.margemLiquida>35?C.warn:C.danger;
                 return (
                   <tr key={item.id} style={{borderTop:`1px solid ${C.border}`}}>
                     <td style={{padding:"9px 12px"}}><span style={{fontWeight:600,color:C.text,fontSize:12}}>{item.nome}</span></td>
@@ -4277,7 +4293,9 @@ function Precos({data, update}) {
                     <td style={{padding:"9px 12px",color:C.muted,fontSize:11}}>{item.categoria||"—"}</td>
                     <td style={{padding:"9px 12px",color:C.danger,fontSize:11,fontWeight:600}}>{fmt(item.custo_insumos)}</td>
                     <td style={{padding:"9px 12px",color:C.warn,fontSize:11}}>{fmt(item.custo_fixo)}</td>
-                    <td style={{padding:"9px 12px",color:C.danger,fontWeight:700}}>{fmt(item.custo_total)}</td>
+                    <td style={{padding:"9px 12px",color:C.muted,fontSize:11}}>{fmt(item.custoTaxaCartao)}</td>
+                    <td style={{padding:"9px 12px",color:C.muted,fontSize:11}}>{fmt(item.custoImposto)}</td>
+                    <td style={{padding:"9px 12px",color:C.danger,fontWeight:700}}>{fmt(item.custoTotalComTaxas)}</td>
                     <td style={{padding:"9px 12px"}}>
                       {editMode
                         ? <input type="number" value={vals.markup} onChange={e=>updatePreco(item.id,"markup",e.target.value)} style={{width:70,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 6px",color:C.text,fontSize:12}}/>
@@ -4291,6 +4309,7 @@ function Precos({data, update}) {
                       }
                     </td>
                     <td style={{padding:"9px 12px"}}><Badge text={`${margem}%`} color={corM}/></td>
+                    <td style={{padding:"9px 12px"}}><Badge text={`${item.margemLiquida}%`} color={corML}/></td>
                     <td style={{padding:"9px 12px"}}>
                       {editMode&&<Btn v="ok" onClick={()=>salvarItem(item)} style={{padding:"3px 9px",fontSize:10}}><I.Check s={11}/> Atualizar</Btn>}
                     </td>
