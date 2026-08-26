@@ -4508,7 +4508,7 @@ function Cadastros({data,insert,update,remove,user}) {
 
   // ── Lembretes WhatsApp ──
   const [clinicaConfig,setClinicaConfig] = useState({
-    whatsapp_ativo:false, zapi_instance:"", zapi_token:"",
+    whatsapp_ativo:false, whatsapp_provider:"zapi", zapi_instance:"", zapi_token:"", wafly_instance:"", wafly_token:"",
     lembrete_1dia_ativo:true, lembrete_1dia_texto:"Olá {nome}! Passando para lembrar do seu horário amanhã, {data} às {hora} para {procedimento}. Contamos com você! 💕",
     lembrete_1hora_ativo:true, lembrete_1hora_texto:"Olá {nome}! Seu horário é daqui a 1 hora ({hora}) para {procedimento}. Já estamos te esperando! ✨",
   });
@@ -4559,16 +4559,25 @@ function Cadastros({data,insert,update,remove,user}) {
       return diffMin>0 && diffMin<=60;
     });
 
-    const enviarZAPI = async (telefone, mensagem) => {
-      if(!clinicaConfig.whatsapp_ativo || !clinicaConfig.zapi_instance || !clinicaConfig.zapi_token) return false;
+    /* Z-API e Wafly usam o mesmo formato de URL (instances/{id}/token/{token}/send-text),
+       então só trocam as credenciais conforme o provedor escolhido. Antes não checava o
+       status da resposta antes de marcar como enviado — se a API recusasse (crédito
+       esgotado, token errado etc.) o lembrete era marcado como enviado mesmo sem ir. */
+    const enviarWhatsApp = async (telefone, mensagem) => {
+      if(!clinicaConfig.whatsapp_ativo) return false;
+      const ehWafly = clinicaConfig.whatsapp_provider==="wafly";
+      const instance = ehWafly ? clinicaConfig.wafly_instance : clinicaConfig.zapi_instance;
+      const token = ehWafly ? clinicaConfig.wafly_token : clinicaConfig.zapi_token;
+      const baseUrl = ehWafly ? "https://api.wafly.com.br" : "https://api.z-api.io";
+      if(!instance || !token) return false;
       try {
         const numero = (telefone||"").replace(/\D/g,"");
         if(!numero) return false;
-        await fetch(`https://api.z-api.io/instances/${clinicaConfig.zapi_instance}/token/${clinicaConfig.zapi_token}/send-text`,{
+        const r = await fetch(`${baseUrl}/instances/${instance}/token/${token}/send-text`,{
           method:"POST", headers:{"Content-Type":"application/json"},
           body:JSON.stringify({phone:`55${numero}`, message:mensagem}),
         });
-        return true;
+        return r.ok;
       } catch(e){ return false; }
     };
 
@@ -4576,7 +4585,7 @@ function Cadastros({data,insert,update,remove,user}) {
       for(const ag of pendentes1dia){
         const pac = data.pacientes.find(p=>p.id===ag.paciente_id);
         const msg = montarMensagem(clinicaConfig.lembrete_1dia_texto, ag);
-        const ok = await enviarZAPI(pac?.whatsapp||pac?.telefone, msg);
+        const ok = await enviarWhatsApp(pac?.whatsapp||pac?.telefone, msg);
         if(ok){ enviados1dia++; await update("agendamentos", ag.id, {lembrete_1dia_enviado:true}); }
         else erros++;
       }
@@ -4585,7 +4594,7 @@ function Cadastros({data,insert,update,remove,user}) {
       for(const ag of pendentes1hora){
         const pac = data.pacientes.find(p=>p.id===ag.paciente_id);
         const msg = montarMensagem(clinicaConfig.lembrete_1hora_texto, ag);
-        const ok = await enviarZAPI(pac?.whatsapp||pac?.telefone, msg);
+        const ok = await enviarWhatsApp(pac?.whatsapp||pac?.telefone, msg);
         if(ok){ enviados1hora++; await update("agendamentos", ag.id, {lembrete_1hora_enviado:true}); }
         else erros++;
       }
@@ -4960,16 +4969,25 @@ function Cadastros({data,insert,update,remove,user}) {
       {/* LEMBRETES WHATSAPP */}
       {aba==="lembretes"&&<div>
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:16,marginBottom:14}}>
-          <h3 style={{color:C.text,fontSize:13,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:7}}><I.Whatsapp c={C.success} s={15}/> Integração WhatsApp (Z-API)</h3>
-          <p style={{color:C.muted,fontSize:11,marginBottom:12}}>Opcional. Crie uma conta em <strong>z-api.io</strong> para obter instância e token. Sem essa configuração o sistema apenas identifica os lembretes pendentes, sem enviar.</p>
+          <h3 style={{color:C.text,fontSize:13,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:7}}><I.Whatsapp c={C.success} s={15}/> Integração WhatsApp</h3>
+          <p style={{color:C.muted,fontSize:11,marginBottom:12}}>Opcional. Escolha o provedor e informe a instância e o token. Sem essa configuração o sistema apenas identifica os lembretes pendentes, sem enviar.</p>
           <label style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer",marginBottom:12}}>
             <input type="checkbox" checked={clinicaConfig.whatsapp_ativo} onChange={e=>setClinicaConfig(c=>({...c,whatsapp_ativo:e.target.checked}))} style={{width:16,height:16,accentColor:C.accent}}/>
             <span style={{color:C.text,fontSize:12,fontWeight:600}}>Ativar envio automático via WhatsApp</span>
           </label>
-          {clinicaConfig.whatsapp_ativo&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <Inp label="Z-API Instance ID" value={clinicaConfig.zapi_instance} onChange={e=>setClinicaConfig(c=>({...c,zapi_instance:e.target.value}))} placeholder="Ex: 3D9F..."/>
-            <Inp label="Z-API Token" value={clinicaConfig.zapi_token} onChange={e=>setClinicaConfig(c=>({...c,zapi_token:e.target.value}))} placeholder="Token de segurança"/>
-          </div>}
+          {clinicaConfig.whatsapp_ativo&&<>
+            <Sel label="Provedor" value={clinicaConfig.whatsapp_provider||"zapi"} onChange={e=>setClinicaConfig(c=>({...c,whatsapp_provider:e.target.value}))}
+              options={[{value:"zapi",label:"Z-API (z-api.io)"},{value:"wafly",label:"Wafly (wafly.com.br)"}]} style={{marginBottom:10}}/>
+            {clinicaConfig.whatsapp_provider==="wafly"
+              ? <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <Inp label="Wafly Instance ID" value={clinicaConfig.wafly_instance} onChange={e=>setClinicaConfig(c=>({...c,wafly_instance:e.target.value}))} placeholder="Ex: 3D9F..."/>
+                  <Inp label="Wafly Token" value={clinicaConfig.wafly_token} onChange={e=>setClinicaConfig(c=>({...c,wafly_token:e.target.value}))} placeholder="Token de segurança"/>
+                </div>
+              : <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <Inp label="Z-API Instance ID" value={clinicaConfig.zapi_instance} onChange={e=>setClinicaConfig(c=>({...c,zapi_instance:e.target.value}))} placeholder="Ex: 3D9F..."/>
+                  <Inp label="Z-API Token" value={clinicaConfig.zapi_token} onChange={e=>setClinicaConfig(c=>({...c,zapi_token:e.target.value}))} placeholder="Token de segurança"/>
+                </div>}
+          </>}
         </div>
 
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:16,marginBottom:14}}>
