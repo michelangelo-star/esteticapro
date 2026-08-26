@@ -7854,7 +7854,9 @@ function FichaPublica({token}) {
   const eset = (k,v) => setExtra(p=>({...p,[k]:v}));
 
   const chamar = async (action, extraBody={}) => {
-    const r = await fetch(EDGE_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action, token, ...extraBody})});
+    /* Página pública, sem sessão — o gateway de Edge Functions do Supabase exige mesmo
+       assim uma chave válida no cabeçalho; a anon key é pública, serve exatamente pra isso. */
+    const r = await fetch(EDGE_URL, {method:"POST", headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`}, body:JSON.stringify({action, token, ...extraBody})});
     const json = await r.json().catch(()=>({erro:"Resposta inválida do servidor."}));
     if(!r.ok) throw new Error(json.erro||"Não foi possível processar sua solicitação.");
     return json;
