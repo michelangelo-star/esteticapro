@@ -21,3 +21,9 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# artefatos de teste manual e backups locais (não fazem parte do código)
+Script_de_Testes_VPBeauty.docx
+~$*.docx
+src/Appback*.js
+src/Appvack*.js
