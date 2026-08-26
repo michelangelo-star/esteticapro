@@ -306,6 +306,8 @@ const mkDemo = () => ({
   ],
   produto_fornecedores:[],
   comissoes_fechamentos:[],
+  empresa:{id:1,tipo_pessoa:"juridica",nome:"VPBeauty Estética Ltda",nome_fantasia:"VPBeauty",cpf_cnpj:"12.345.678/0001-90",cep:"01310-100",endereco:"Av. Paulista, 1000",cidade:"São Paulo",estado:"SP",telefone:"(11) 3000-0000",segmento_id:1,logo_base64:"",percentual_simples:6,taxa_cartao_padrao:3},
+  segmentos_empresa:[{id:1,nome:"Estética e Beleza",ativo:true},{id:2,nome:"Odontologia",ativo:true}],
   salas:[
     {id:1,nome:"Sala 1 - Estética Facial",descricao:"18m², maca elétrica, espelho iluminado",valor_aluguel:1500,status:"alugada",locatario_nome:"Juliana Freitas",locatario_cpf:"123.456.789-00",locatario_telefone:"(11)98888-4444",contrato_inicio:"2025-01-10",contrato_fim:"2025-12-31",contrato_arquivo_nome:"",contrato_arquivo_base64:""},
     {id:2,nome:"Sala 2 - Estética Corporal",descricao:"22m², maca de massagem, ducha",valor_aluguel:1800,status:"disponivel"},
@@ -815,6 +817,38 @@ const CategoriaSelect = ({data, insert, value, onChange, label="Categoria"}) => 
   );
 };
 
+/* Seleção de segmento da empresa, com criação rápida — mesmo padrão de CategoriaSelect. */
+const SegmentoSelect = ({data, insert, value, onChange, label="Segmento"}) => {
+  const [addingNew,setAddingNew] = useState(false);
+  const [novoNome,setNovoNome] = useState("");
+  const opcoes = (data.segmentos_empresa||[]).filter(s=>s.ativo).map(s=>({value:String(s.id), label:s.nome}));
+
+  if(addingNew) return (
+    <div>
+      <label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>{label}</label>
+      <div style={{display:"flex",gap:6}}>
+        <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Novo segmento..."
+          style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:13}}/>
+        <button type="button" onClick={async()=>{
+          const nome=novoNome.trim();
+          if(!nome) return;
+          const criado = await insert("segmentos_empresa",{nome,ativo:true});
+          if(criado) onChange(String(criado.id));
+          setNovoNome(""); setAddingNew(false);
+        }} style={{background:C.accentSoft,border:`1px solid ${C.accent}40`,borderRadius:8,width:38,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Check c={C.accent} s={14}/></button>
+        <button type="button" onClick={()=>{setAddingNew(false);setNovoNome("");}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:38,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.X c={C.muted} s={14}/></button>
+      </div>
+    </div>
+  );
+
+  return (
+    <Sel label={label} value={value||""} onChange={e=>{
+      if(e.target.value==="__novo__") setAddingNew(true);
+      else onChange(e.target.value);
+    }} options={[{value:"",label:"Selecione..."}, ...opcoes, {value:"__novo__",label:"+ Novo segmento..."}]}/>
+  );
+};
+
 /* Seleção de categoria financeira (contas a pagar/receber) por tipo, com criação rápida.
    Diferente de CategoriaSelect: aqui o valor gravado é o id (categoria_id é FK), não o nome. */
 const CategoriaFinanceiraSelect = ({data, insert, tipo, value, onChange, label="Categoria"}) => {
@@ -897,6 +931,7 @@ function useData(clinicaId) {
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
         adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
+        empresa, segmentos_empresa,
       ] = await Promise.all([
         sb.get("profissionais",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("fornecedores",        `clinica_id=eq.${cid}&ativo=eq.true`),
@@ -930,6 +965,8 @@ function useData(clinicaId) {
         sb.get("categorias_produtos", `clinica_id=eq.${cid}&order=nome.asc`),
         sb.get("produto_fornecedores",`clinica_id=eq.${cid}`),
         sb.get("comissoes_fechamentos",`clinica_id=eq.${cid}&order=data_fechamento.desc`),
+        sb.get("empresa",             `clinica_id=eq.${cid}`),
+        sb.get("segmentos_empresa",   `clinica_id=eq.${cid}&order=nome.asc`),
       ]);
 
       setData({
@@ -942,6 +979,7 @@ function useData(clinicaId) {
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
         adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
+        empresa: empresa?.[0]||null, segmentos_empresa,
       });
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
@@ -4652,6 +4690,34 @@ function Cadastros({data,insert,update,remove,user}) {
   const [loadingUser,setLoadingUser] = useState(false);
   const isSupervisor = !user || user.role !== "profissional";
 
+  // ── Empresa ──
+  const initEmpresa = {tipo_pessoa:"juridica",nome:"",nome_fantasia:"",cpf_cnpj:"",cep:"",endereco:"",cidade:"",estado:"",telefone:"",segmento_id:"",logo_base64:"",percentual_simples:0,taxa_cartao_padrao:0};
+  const [empresaForm,setEmpresaForm] = useState(initEmpresa);
+  const ef = (k,v) => setEmpresaForm(p=>({...p,[k]:v}));
+  const [msgEmpresa,setMsgEmpresa] = useState("");
+  useEffect(()=>{ if(aba==="empresa") setEmpresaForm(data.empresa?{...initEmpresa,...data.empresa}:initEmpresa); },[aba]); // eslint-disable-line
+
+  const handleUploadLogo = (e) => {
+    const file = e.target.files?.[0];
+    if(!file) return;
+    if(file.size > 2*1024*1024){ alert("Imagem muito grande. Máximo 2MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => ef("logo_base64", reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const salvarEmpresa = async () => {
+    setMsgEmpresa("");
+    const rec = {...empresaForm,
+      segmento_id: empresaForm.segmento_id?Number(empresaForm.segmento_id):null,
+      percentual_simples: Number(empresaForm.percentual_simples)||0,
+      taxa_cartao_padrao: Number(empresaForm.taxa_cartao_padrao)||0,
+    };
+    if(data.empresa?.id){ await update("empresa", data.empresa.id, rec); }
+    else { await insert("empresa", rec); }
+    setMsgEmpresa("✓ Dados da empresa salvos com sucesso!");
+  };
+
   // ── Lembretes WhatsApp ──
   const [clinicaConfig,setClinicaConfig] = useState({
     whatsapp_ativo:false, whatsapp_provider:"zapi", zapi_instance:"", zapi_token:"", wafly_instance:"", wafly_token:"",
@@ -4838,13 +4904,69 @@ function Cadastros({data,insert,update,remove,user}) {
       <PH title="Cadastros" sub="Configurações e dados auxiliares"/>
 
       <div style={{display:"flex",gap:7,marginBottom:16,flexWrap:"wrap"}}>
-        {[["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["adq","Adquirentes"],["cat","Categorias"],["prof","Profissionais"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
+        {[["empresa","Empresa"],["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["adq","Adquirentes"],["cat","Categorias"],["prof","Profissionais"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
           <button key={a[0]} onClick={()=>{setAba(a[0]);setModal(false);setMsgUser("");}}
             style={{padding:"7px 14px",borderRadius:8,border:`1px solid ${aba===a[0]?C.accent:C.border}`,background:aba===a[0]?C.accentSoft:"transparent",color:aba===a[0]?C.accent:C.muted,fontSize:12,fontWeight:aba===a[0]?700:400,cursor:"pointer"}}>
             {a[1]}
           </button>
         ))}
       </div>
+
+      {/* EMPRESA */}
+      {aba==="empresa"&&<div style={{maxWidth:760}}>
+        <p style={{color:C.muted,fontSize:11,marginBottom:14}}>Esses dados (e a logo) aparecem no Dashboard e no cabeçalho de todos os documentos impressos — atendimento, recibo, fechamento de comissões, conferência de estoque.</p>
+
+        <div style={{display:"flex",gap:16,marginBottom:14,alignItems:"flex-start"}}>
+          <div style={{flexShrink:0,width:100,height:100,borderRadius:12,border:`1px dashed ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+            {empresaForm.logo_base64
+              ? <img src={empresaForm.logo_base64} alt="Logo" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+              : <span style={{color:C.muted,fontSize:10,textAlign:"center",padding:8}}>Sem logo</span>}
+          </div>
+          <div style={{flex:1}}>
+            <label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Logo da empresa</label>
+            <label style={{display:"flex",alignItems:"center",gap:7,background:C.surface,border:`1px dashed ${C.border}`,borderRadius:8,padding:"9px 12px",cursor:"pointer",color:C.muted,fontSize:12,marginBottom:6}}>
+              <I.File c={C.muted} s={14}/> Escolher imagem...
+              <input type="file" accept="image/*" onChange={handleUploadLogo} style={{display:"none"}}/>
+            </label>
+            {empresaForm.logo_base64&&<button onClick={()=>ef("logo_base64","")} style={{background:"none",border:"none",color:C.danger,fontSize:11,cursor:"pointer",padding:0}}>Remover logo</button>}
+          </div>
+        </div>
+
+        <div style={{display:"flex",gap:16,marginBottom:11}}>
+          {[["juridica","Pessoa Jurídica"],["fisica","Pessoa Física"]].map(([v,l])=>(
+            <label key={v} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+              <input type="radio" checked={empresaForm.tipo_pessoa===v} onChange={()=>ef("tipo_pessoa",v)}/>
+              <span style={{fontSize:12,color:C.text}}>{l}</span>
+            </label>
+          ))}
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <Inp label={empresaForm.tipo_pessoa==="fisica"?"Nome completo":"Razão Social"} value={empresaForm.nome} onChange={e=>ef("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
+          {empresaForm.tipo_pessoa==="juridica"&&<Inp label="Nome Fantasia" value={empresaForm.nome_fantasia} onChange={e=>ef("nome_fantasia",e.target.value)}/>}
+          <Inp label={empresaForm.tipo_pessoa==="fisica"?"CPF":"CNPJ"} value={empresaForm.cpf_cnpj} onChange={e=>ef("cpf_cnpj",maskCpfCnpj(e.target.value))}/>
+          <Inp label="Telefone" value={empresaForm.telefone} onChange={e=>ef("telefone",maskFone(e.target.value))}/>
+          <SegmentoSelect data={data} insert={insert} value={empresaForm.segmento_id} onChange={v=>ef("segmento_id",v)}/>
+          <Inp label="CEP" value={empresaForm.cep} onChange={e=>ef("cep",maskCEP(e.target.value))} placeholder="00000-000"/>
+          <Inp label="Endereço" value={empresaForm.endereco} onChange={e=>ef("endereco",e.target.value)} style={{gridColumn:"1/-1"}}/>
+          <Inp label="Cidade" value={empresaForm.cidade} onChange={e=>ef("cidade",e.target.value)}/>
+          <Sel label="Estado" value={empresaForm.estado} onChange={e=>ef("estado",e.target.value)} options={[{value:"",label:"UF"},...["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map(uf=>({value:uf,label:uf}))]}/>
+        </div>
+
+        <div style={{background:C.surface,borderRadius:10,padding:13,marginTop:6,marginBottom:14,border:`1px solid ${C.border}`}}>
+          <div style={{color:C.text,fontSize:12,fontWeight:700,marginBottom:9}}>Impostos e taxas (usados em Custos & Precificação)</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Percentual do Simples Nacional (%)" type="number" value={empresaForm.percentual_simples} onChange={e=>ef("percentual_simples",e.target.value)}/>
+            <Inp label="Taxa de cartão padrão (%)" type="number" value={empresaForm.taxa_cartao_padrao} onChange={e=>ef("taxa_cartao_padrao",e.target.value)}/>
+          </div>
+        </div>
+
+        {msgEmpresa&&<div style={{background:C.success+"14",border:`1px solid ${C.success}35`,borderRadius:8,padding:"8px 12px",marginBottom:12,color:C.success,fontSize:11,fontWeight:600}}>{msgEmpresa}</div>}
+
+        <div style={{display:"flex",justifyContent:"flex-end"}}>
+          <Btn onClick={salvarEmpresa} disabled={!empresaForm.nome}><I.Check s={12}/> Salvar Dados da Empresa</Btn>
+        </div>
+      </div>}
 
       {/* FORMAS DE PAGAMENTO */}
       {aba==="fp"&&<>
