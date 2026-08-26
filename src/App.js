@@ -309,6 +309,7 @@ const mkDemo = () => ({
   empresa:{id:1,tipo_pessoa:"juridica",nome:"VPBeauty Estética Ltda",nome_fantasia:"VPBeauty",cpf_cnpj:"12.345.678/0001-90",cep:"01310-100",endereco:"Av. Paulista, 1000",cidade:"São Paulo",estado:"SP",telefone:"(11) 3000-0000",segmento_id:1,logo_base64:"",percentual_simples:6,taxa_cartao_padrao:3},
   segmentos_empresa:[{id:1,nome:"Estética e Beleza",ativo:true},{id:2,nome:"Odontologia",ativo:true}],
   logs_financeiros:[],
+  paciente_patologias:[],
   salas:[
     {id:1,nome:"Sala 1 - Estética Facial",descricao:"18m², maca elétrica, espelho iluminado",valor_aluguel:1500,status:"alugada",locatario_nome:"Juliana Freitas",locatario_cpf:"123.456.789-00",locatario_telefone:"(11)98888-4444",contrato_inicio:"2025-01-10",contrato_fim:"2025-12-31",contrato_arquivo_nome:"",contrato_arquivo_base64:""},
     {id:2,nome:"Sala 2 - Estética Corporal",descricao:"22m², maca de massagem, ducha",valor_aluguel:1800,status:"disponivel"},
@@ -953,7 +954,7 @@ function useData(clinicaId) {
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
         adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
-        empresa, segmentos_empresa, logs_financeiros,
+        empresa, segmentos_empresa, logs_financeiros, paciente_patologias,
       ] = await Promise.all([
         sb.get("profissionais",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("fornecedores",        `clinica_id=eq.${cid}&ativo=eq.true`),
@@ -990,6 +991,7 @@ function useData(clinicaId) {
         sb.get("empresa",             `clinica_id=eq.${cid}`),
         sb.get("segmentos_empresa",   `clinica_id=eq.${cid}&order=nome.asc`),
         sb.get("logs_financeiros",    `clinica_id=eq.${cid}&order=created_at.desc&limit=300`),
+        sb.get("paciente_patologias", `clinica_id=eq.${cid}&order=data_informada.desc`),
       ]);
 
       setData({
@@ -1002,7 +1004,7 @@ function useData(clinicaId) {
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
         adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
-        empresa: empresa?.[0]||null, segmentos_empresa, logs_financeiros,
+        empresa: empresa?.[0]||null, segmentos_empresa, logs_financeiros, paciente_patologias,
       });
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
@@ -1842,8 +1844,9 @@ function Dashboard({data, user}) {
 }
 
 /* ─── AGENDAMENTOS ───────────────────────────────────────────── */
-function Agendamentos({data,insert,update,onRealizar}) {
+function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
   const [modal,setModal]=useState(false);
+  const [prontuarioAberto,setProntuarioAberto]=useState(null); // paciente cujo prontuário está aberto
   const [bloqueioModal,setBloqueioModal]=useState(false);
   const [visao,setVisao]=useState("dia"); // "mes" | "semana" | "dia" | "lista"
   const [diaSelecionado,setDiaSelecionado]=useState(today());
@@ -2156,7 +2159,7 @@ function Agendamentos({data,insert,update,onRealizar}) {
                       <Badge text={ag.status} color={sc[ag.status]||C.muted}/>
                     </div>
                     <div style={{marginBottom:8}}>
-                      <div style={{color:C.text,fontSize:13,fontWeight:600}}>{ag.paciente}</div>
+                      <button onClick={()=>pac&&setProntuarioAberto(pac)} disabled={!pac} style={{background:"none",border:"none",padding:0,cursor:pac?"pointer":"default",color:C.text,fontSize:13,fontWeight:600,textDecoration:pac?"underline":"none",textDecorationColor:C.border,textAlign:"left"}}>{ag.paciente}</button>
                       <div style={{color:C.muted,fontSize:12,marginTop:1}}>{ag.servico}</div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
@@ -2186,7 +2189,7 @@ function Agendamentos({data,insert,update,onRealizar}) {
             const pac=data.pacientes.find(pc=>pc.id===ag.paciente_id);
             const foneWhats=(pac?.whatsapp||pac?.telefone||"").replace(/\D/g,"");
             return[
-            <span style={{fontWeight:600}}>{ag.paciente}</span>,ag.servico,
+            <button onClick={()=>pac&&setProntuarioAberto(pac)} disabled={!pac} style={{background:"none",border:"none",padding:0,cursor:pac?"pointer":"default",fontWeight:600,color:C.text,textDecoration:pac?"underline":"none",textDecorationColor:C.border}}>{ag.paciente}</button>,ag.servico,
             <span style={{color:p?.cor||C.accent,fontWeight:600}}>{p?.nome?.split(" ").slice(0,2).join(" ")}</span>,
             fmtDate(ag.data),<span style={{fontWeight:700}}>{ag.hora}</span>,
             <span style={{color:C.accent,fontWeight:700}}>{fmt(ag.valor)}</span>,
@@ -2236,6 +2239,8 @@ function Agendamentos({data,insert,update,onRealizar}) {
           <Btn v="d" onClick={salvarBloqueio} disabled={!formBloqueio.profissional_id}><I.Lock s={12}/> Bloquear</Btn>
         </div>
       </Mod>}
+
+      {prontuarioAberto&&<ProntuarioModal paciente={prontuarioAberto} data={data} dadosCompletos={dadosCompletos} insert={insert} update={update} user={user} onClose={()=>setProntuarioAberto(null)}/>}
     </div>
   );
 }
@@ -2243,7 +2248,8 @@ function Agendamentos({data,insert,update,onRealizar}) {
 
 
 /* ─── ATENDIMENTOS ───────────────────────────────────────────── */
-function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
+function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu}) {
+  const [prontuarioAberto,setProntuarioAberto]=useState(null);
   const isSupervisor = !user || user.role !== "profissional";
   const [modal,setModal] = useState(false); // false | "novo" | {id}
   const [msgSalvo,setMsgSalvo] = useState("");
@@ -2642,6 +2648,10 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
           <Inp label="Data do Atendimento" type="date" value={cab.data} onChange={e=>fc("data",e.target.value)}/>
         </div>
 
+        {cab.paciente_id&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:12,marginTop:-6}}>
+          <Btn v="g" onClick={()=>setProntuarioAberto(data.pacientes.find(p=>p.id===parseInt(cab.paciente_id)))} style={{fontSize:11,padding:"4px 10px"}}><I.Clipboard s={11}/> Prontuário</Btn>
+        </div>}
+
         {somenteLeitura&&<div style={{background:C.warn+"12",border:`1px solid ${C.warn}30`,borderRadius:8,padding:"9px 12px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
           <I.Lock c={C.warn} s={13}/><span style={{color:C.warn,fontSize:11}}>Atendimento fechado — não pode mais ser editado pela profissional. {isSupervisor?"Use \"Receber\" na lista pra dar baixa.":"Aguardando o caixa dar baixa no pagamento."}</span>
         </div>}
@@ -2798,11 +2808,193 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
       </Mod>
         );
       })()}
+
+      {prontuarioAberto&&<ProntuarioModal paciente={prontuarioAberto} data={data} dadosCompletos={dadosCompletos} insert={insert} update={update} user={user} onClose={()=>setProntuarioAberto(null)}/>}
     </div>
   );
 }
 
 /* ─── PACIENTES ──────────────────────────────────────────────── */
+/* ─── PRONTUÁRIO (linha do tempo do paciente) ───────────────────
+   Mistura atendimentos, patologias e anamneses num histórico único, mais recente
+   primeiro. Reaproveitado a partir de Pacientes, Agendamentos e Atendimentos —
+   por isso recebe tudo que precisa via prop em vez de depender do estado de uma tela específica. */
+function ProntuarioModal({paciente, data, dadosCompletos, insert, update, user, onClose}) {
+  const full = dadosCompletos || data;
+  const isSupervisor = !user || user.role !== "profissional";
+  const [filtroTimeline,setFiltroTimeline] = useState("todos");
+  const [anamneseModal,setAnamneseModal] = useState(null); // null | true (nova) | registro existente
+  const [novaPatologia,setNovaPatologia] = useState({nome:"",data_informada:today(),observacoes:""});
+
+  const atendimentosDoPaciente = useMemo(()=>{
+    let ats = full.atendimentos.filter(a=>a.paciente_id===paciente.id||a.paciente===paciente.nome);
+    if(filtroTimeline!=="todos") ats = ats.filter(a=>String(a.profissional_id)===filtroTimeline);
+    return ats;
+  },[paciente,full.atendimentos,filtroTimeline]);
+
+  const profissionaisDoTimeline = useMemo(()=>{
+    const ids = new Set(full.atendimentos.filter(a=>a.paciente_id===paciente.id||a.paciente===paciente.nome).map(a=>a.profissional_id));
+    return full.profissionais.filter(p=>ids.has(p.id));
+  },[paciente,full.atendimentos,full.profissionais]);
+
+  const patologiasDoPaciente = (data.paciente_patologias||[]).filter(p=>p.paciente_id===paciente.id);
+  const anamnesesDoPaciente = (data.anamneses||[]).filter(a=>a.paciente_id===paciente.id);
+
+  /* Timeline única — hoje só existe 1 anamnese por paciente (upsert); quando a anamnese
+     digital remota virar histórico (rodada seguinte), múltiplas aparecem aqui automaticamente. */
+  const eventos = useMemo(()=>{
+    const evs = [
+      ...atendimentosDoPaciente.map(a=>({tipo:"atendimento", data:a.data, item:a})),
+      ...patologiasDoPaciente.map(p=>({tipo:"patologia", data:p.data_informada, item:p})),
+      ...anamnesesDoPaciente.map(a=>({tipo:"anamnese", data:(a.assinado_em||a.updated_at||"").slice(0,10)||today(), item:a})),
+    ];
+    return evs.sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+  },[atendimentosDoPaciente,patologiasDoPaciente,anamnesesDoPaciente]);
+
+  const addPatologia = async () => {
+    if(!novaPatologia.nome.trim()) return;
+    await insert("paciente_patologias",{paciente_id:paciente.id, nome:novaPatologia.nome.trim(), data_informada:novaPatologia.data_informada||today(), observacoes:novaPatologia.observacoes});
+    setNovaPatologia({nome:"",data_informada:today(),observacoes:""});
+  };
+  const rmPatologia = async (id) => {
+    if(!DEMO_MODE) await fetch(`${SUPABASE_URL}/rest/v1/paciente_patologias?id=eq.${id}`,{method:"DELETE",headers:getHeaders()});
+  };
+
+  const handleSaveAnamnese = async (formAnamnese) => {
+    const existente = data.anamneses.find(a=>a.paciente_id===paciente.id);
+    if(existente){ await update("anamneses",existente.id,{...formAnamnese,updated_at:new Date().toISOString()}); }
+    else { await insert("anamneses",{...formAnamnese,paciente_id:paciente.id}); }
+    setAnamneseModal(null);
+  };
+
+  return (
+    <Mod title={`Prontuário — ${paciente.nome}`} onClose={onClose} full>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:9,marginBottom:14}}>
+        {[["CPF",paciente.cpf],["WhatsApp",paciente.whatsapp||paciente.telefone],["E-mail",paciente.email],["Nascimento",fmtDate(paciente.nascimento)],["Como conheceu",paciente.como_conheceu],["Cidade/UF",paciente.cidade&&paciente.estado?`${paciente.cidade}/${paciente.estado}`:"—"]].map(([l,v])=>(
+          <div key={l} style={{background:C.surface,borderRadius:8,padding:"8px 10px"}}><div style={{color:C.muted,fontSize:9,textTransform:"uppercase",marginBottom:2}}>{l}</div><div style={{color:C.text,fontSize:12,fontWeight:600}}>{v||"—"}</div></div>
+        ))}
+      </div>
+      <div className="stat-row" style={{display:"flex",gap:9,marginBottom:14,flexWrap:"wrap"}}>
+        <SC label="Total gasto" value={fmt(paciente.total_gasto||0)} Icon={I.Dollar} color={C.accent}/>
+        <SC label="Visitas" value={paciente.total_visitas||0} Icon={I.Receipt} color={C.info}/>
+        <SC label="Última visita" value={fmtDate(paciente.ultima_visita)} Icon={I.Cal} color={C.success}/>
+      </div>
+      {paciente.observacoes&&<div style={{background:C.warn+"14",border:`1px solid ${C.warn}28`,borderRadius:8,padding:"8px 10px",marginBottom:12}}><div style={{color:C.warn,fontSize:10,fontWeight:700,marginBottom:2}}>ALERTAS</div><div style={{color:C.text,fontSize:12}}>{paciente.observacoes}</div></div>}
+
+      {/* Patologias */}
+      <div style={{background:C.surface,borderRadius:10,padding:13,marginBottom:16,border:`1px solid ${C.border}`}}>
+        <div style={{color:C.text,fontSize:12,fontWeight:700,marginBottom:9}}>Patologias</div>
+        {patologiasDoPaciente.length===0&&<p style={{color:C.muted,fontSize:11,marginBottom:9}}>Nenhuma patologia informada.</p>}
+        {patologiasDoPaciente.map(p=>(
+          <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+            <div>
+              <span style={{color:C.text,fontSize:12,fontWeight:600}}>{p.nome}</span>
+              <span style={{color:C.muted,fontSize:10,marginLeft:8}}>desde {fmtDate(p.data_informada)}</span>
+              {p.observacoes&&<div style={{color:C.muted,fontSize:11}}>{p.observacoes}</div>}
+            </div>
+            <button onClick={()=>rmPatologia(p.id)} style={{background:"none",border:"none",color:C.danger,cursor:"pointer"}}><I.X s={13}/></button>
+          </div>
+        ))}
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 2fr auto",gap:6,marginTop:9,alignItems:"end"}}>
+          <Inp label="Patologia" value={novaPatologia.nome} onChange={e=>setNovaPatologia(p=>({...p,nome:e.target.value}))} placeholder="Ex: Diabetes tipo 2"/>
+          <Inp label="Desde" type="date" value={novaPatologia.data_informada} onChange={e=>setNovaPatologia(p=>({...p,data_informada:e.target.value}))}/>
+          <Inp label="Observações" value={novaPatologia.observacoes} onChange={e=>setNovaPatologia(p=>({...p,observacoes:e.target.value}))}/>
+          <Btn v="g" onClick={addPatologia} disabled={!novaPatologia.nome.trim()}><I.Plus s={12}/></Btn>
+        </div>
+      </div>
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <h4 style={{color:C.text,fontSize:12,fontWeight:700}}>Linha do Tempo — Histórico Completo</h4>
+        <Btn v={anamnesesDoPaciente.length>0?"ok":"warn"} onClick={()=>setAnamneseModal(anamnesesDoPaciente[0]||true)} style={{fontSize:10,padding:"4px 10px"}}>
+          {anamnesesDoPaciente.length>0?"✓ Ver Anamnese":"+ Preencher Anamnese"}
+        </Btn>
+      </div>
+
+      {profissionaisDoTimeline.length>0&&
+        <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+          <span style={{color:C.muted,fontSize:11}}>Filtrar por:</span>
+          <button onClick={()=>setFiltroTimeline("todos")} style={{padding:"4px 11px",borderRadius:20,border:`1px solid ${filtroTimeline==="todos"?C.accent:C.border}`,background:filtroTimeline==="todos"?C.accentSoft:"transparent",color:filtroTimeline==="todos"?C.accent:C.muted,fontSize:11,fontWeight:filtroTimeline==="todos"?700:400,cursor:"pointer"}}>
+            Todos os profissionais
+          </button>
+          {isSupervisor
+            ? profissionaisDoTimeline.map(prof=>(
+                <button key={prof.id} onClick={()=>setFiltroTimeline(String(prof.id))} style={{padding:"4px 11px",borderRadius:20,border:`1px solid ${filtroTimeline===String(prof.id)?prof.cor:C.border}`,background:filtroTimeline===String(prof.id)?prof.cor+"18":"transparent",color:filtroTimeline===String(prof.id)?prof.cor:C.muted,fontSize:11,fontWeight:filtroTimeline===String(prof.id)?700:400,cursor:"pointer"}}>
+                  {prof.nome}
+                </button>
+              ))
+            : <button onClick={()=>setFiltroTimeline(String(user.profissionalId))} style={{padding:"4px 11px",borderRadius:20,border:`1px solid ${filtroTimeline===String(user.profissionalId)?C.accent:C.border}`,background:filtroTimeline===String(user.profissionalId)?C.accentSoft:"transparent",color:filtroTimeline===String(user.profissionalId)?C.accent:C.muted,fontSize:11,fontWeight:filtroTimeline===String(user.profissionalId)?700:400,cursor:"pointer"}}>
+                Somente meus atendimentos
+              </button>
+          }
+        </div>
+      }
+
+      {eventos.length===0
+        ?<p style={{color:C.muted,fontSize:12}}>Nenhum evento registrado{filtroTimeline!=="todos"?" com este filtro":""}.</p>
+        :<div style={{position:"relative",paddingLeft:22}}>
+          <div style={{position:"absolute",left:5,top:6,bottom:6,width:2,background:C.border}}/>
+          {eventos.map((ev,idx)=>{
+            if(ev.tipo==="atendimento"){
+              const at=ev.item, prof=full.profissionais.find(p=>p.id===at.profissional_id);
+              return(
+                <div key={`at-${at.id}`} style={{position:"relative",marginBottom:idx===eventos.length-1?0:16}}>
+                  <div style={{position:"absolute",left:-22,top:3,width:12,height:12,borderRadius:"50%",background:prof?.cor||C.accent,border:`2px solid ${C.card}`,boxShadow:`0 0 0 2px ${prof?.cor||C.accent}30`}}/>
+                  <div style={{background:C.surface,borderRadius:10,padding:"10px 13px",border:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:4}}>
+                      <div>
+                        <div style={{color:C.text,fontSize:13,fontWeight:700}}>{at.servico}</div>
+                        <div style={{color:C.muted,fontSize:10,marginTop:1}}>{fmtDate(at.data)}</div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{color:C.accent,fontWeight:700,fontSize:13}}>{fmt(at.valor_final||at.valor)}</div>
+                        <Badge text={at.pago?"Pago":"Pendente"} color={at.pago?C.success:C.warn}/>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}>
+                      <div style={{width:16,height:16,borderRadius:"50%",background:(prof?.cor||C.accent)+"22",display:"flex",alignItems:"center",justifyContent:"center",color:prof?.cor||C.accent,fontWeight:700,fontSize:8}}>{prof?.nome?.[0]||"?"}</div>
+                      <span style={{color:C.muted,fontSize:11}}>{prof?.nome||"Profissional não identificado"}</span>
+                      {at.forma_pagamento&&<span style={{color:C.muted,fontSize:10}}>· {at.forma_pagamento}</span>}
+                    </div>
+                    {at.observacoes&&<div style={{color:C.muted,fontSize:11,marginTop:6,fontStyle:"italic"}}>"{at.observacoes}"</div>}
+                  </div>
+                </div>
+              );
+            }
+            if(ev.tipo==="patologia"){
+              const p=ev.item;
+              return(
+                <div key={`pat-${p.id}`} style={{position:"relative",marginBottom:idx===eventos.length-1?0:16}}>
+                  <div style={{position:"absolute",left:-22,top:3,width:12,height:12,borderRadius:"50%",background:C.danger,border:`2px solid ${C.card}`,boxShadow:`0 0 0 2px ${C.danger}30`}}/>
+                  <div style={{background:C.danger+"0A",borderRadius:10,padding:"10px 13px",border:`1px solid ${C.danger}25`}}>
+                    <div style={{color:C.danger,fontSize:12,fontWeight:700}}>Patologia informada: {p.nome}</div>
+                    <div style={{color:C.muted,fontSize:10,marginTop:1}}>{fmtDate(p.data_informada)}</div>
+                    {p.observacoes&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{p.observacoes}</div>}
+                  </div>
+                </div>
+              );
+            }
+            const a=ev.item;
+            return(
+              <div key={`an-${a.id}`} style={{position:"relative",marginBottom:idx===eventos.length-1?0:16}}>
+                <div style={{position:"absolute",left:-22,top:3,width:12,height:12,borderRadius:"50%",background:C.info,border:`2px solid ${C.card}`,boxShadow:`0 0 0 2px ${C.info}30`}}/>
+                <div style={{background:C.info+"0A",borderRadius:10,padding:"10px 13px",border:`1px solid ${C.info}25`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{color:C.info,fontSize:12,fontWeight:700}}>Ficha de Anamnese {a.preenchida_remotamente?"(preenchida pelo paciente)":""}</div>
+                    <div style={{color:C.muted,fontSize:10,marginTop:1}}>{fmtDate(ev.data)}</div>
+                  </div>
+                  <Btn v="g" onClick={()=>setAnamneseModal(a)} style={{padding:"3px 9px",fontSize:10}}>Ver</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      }
+
+      {anamneseModal&&<AnamneseModal paciente={paciente} existente={anamneseModal===true?null:anamneseModal} onClose={()=>setAnamneseModal(null)} onSave={handleSaveAnamnese}/>}
+    </Mod>
+  );
+}
+
 function Pacientes({data,insert,update,dadosCompletos,user}) {
   const [modal,setModal]=useState(false);
   const [ficha,setFicha]=useState(null);
@@ -2810,10 +3002,6 @@ function Pacientes({data,insert,update,dadosCompletos,user}) {
   const [filt,setFilt]=useState({busca:"",tag:""});
   const ff=(k,v)=>setFilt(p=>({...p,[k]:v}));
   const [form,setForm]=useState({nome:"",cpf:"",telefone:"",whatsapp:"",email:"",nascimento:"",sexo:"",profissao:"",endereco:"",cidade:"",estado:"",cep:"",como_conheceu:"",observacoes:""});
-  const [filtroTimeline,setFiltroTimeline]=useState("todos"); /* "todos" ou id do profissional */
-  const isSupervisor = !user || user.role !== "profissional";
-  /* Fonte completa (todos os profissionais) para a linha do tempo compartilhada */
-  const full = dadosCompletos || data;
 
   const lista=useMemo(()=>{
     let l=[...data.pacientes];
@@ -2832,21 +3020,6 @@ function Pacientes({data,insert,update,dadosCompletos,user}) {
 
   const todasTags=[...new Set(data.pacientes.flatMap(p=>p.tags||[]))];
 
-  /* Linha do tempo completa do paciente, com todos os profissionais que já o atenderam */
-  const timeline = useMemo(()=>{
-    if(!ficha) return [];
-    let ats = full.atendimentos.filter(a=>a.paciente_id===ficha.id||a.paciente===ficha.nome);
-    if(filtroTimeline!=="todos") ats = ats.filter(a=>String(a.profissional_id)===filtroTimeline);
-    return ats.sort((a,b)=>(b.data||"").localeCompare(a.data||""));
-  },[ficha,full.atendimentos,filtroTimeline]);
-
-  /* Lista de profissionais que já atenderam este paciente, para montar o filtro */
-  const profissionaisDoTimeline = useMemo(()=>{
-    if(!ficha) return [];
-    const ids = new Set(full.atendimentos.filter(a=>a.paciente_id===ficha.id||a.paciente===ficha.nome).map(a=>a.profissional_id));
-    return full.profissionais.filter(p=>ids.has(p.id));
-  },[ficha,full.atendimentos,full.profissionais]);
-
   return(
     <div>
       <PH title="Pacientes" sub={`${lista.length} de ${data.pacientes.length} cadastrados`}><Btn onClick={()=>setModal(true)}><I.Plus s={12}/> Cadastrar</Btn></PH>
@@ -2862,7 +3035,7 @@ function Pacientes({data,insert,update,dadosCompletos,user}) {
           <span style={{color:C.info,fontWeight:600}}>{p.total_visitas||0}</span>,
           <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{(p.tags||[]).map(t=><Badge key={t} text={t} color={C.purple}/>)}</div>,
           <div style={{display:"flex",gap:4}}>
-            <Btn v="g" onClick={()=>{setFicha(p);setFiltroTimeline("todos");}} style={{padding:"3px 7px"}}><I.Eye s={11}/></Btn>
+            <Btn v="g" onClick={()=>setFicha(p)} style={{padding:"3px 7px"}}><I.Eye s={11}/></Btn>
             <Btn v={anamnese?"ok":"warn"} onClick={()=>setAnamneseModal(p)} style={{padding:"3px 7px",fontSize:9}}>{anamnese?"Anamnese ✓":"Anamnese"}</Btn>
           </div>
         ];})}
@@ -2890,80 +3063,7 @@ function Pacientes({data,insert,update,dadosCompletos,user}) {
         </div>
       </Mod>}
 
-      {ficha&&<Mod title={`Ficha — ${ficha.nome}`} onClose={()=>setFicha(null)} full>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:9,marginBottom:14}}>
-          {[["CPF",ficha.cpf],["WhatsApp",ficha.whatsapp||ficha.telefone],["E-mail",ficha.email],["Nascimento",fmtDate(ficha.nascimento)],["Como conheceu",ficha.como_conheceu],["Cidade/UF",ficha.cidade&&ficha.estado?`${ficha.cidade}/${ficha.estado}`:"—"]].map(([l,v])=>(
-            <div key={l} style={{background:C.surface,borderRadius:8,padding:"8px 10px"}}><div style={{color:C.muted,fontSize:9,textTransform:"uppercase",marginBottom:2}}>{l}</div><div style={{color:C.text,fontSize:12,fontWeight:600}}>{v||"—"}</div></div>
-          ))}
-        </div>
-        <div className="stat-row" style={{display:"flex",gap:9,marginBottom:14,flexWrap:"wrap"}}>
-          <SC label="Total gasto" value={fmt(ficha.total_gasto||0)} Icon={I.Dollar} color={C.accent}/>
-          <SC label="Visitas" value={ficha.total_visitas||0} Icon={I.Receipt} color={C.info}/>
-          <SC label="Última visita" value={fmtDate(ficha.ultima_visita)} Icon={I.Cal} color={C.success}/>
-        </div>
-        {ficha.observacoes&&<div style={{background:C.warn+"14",border:`1px solid ${C.warn}28`,borderRadius:8,padding:"8px 10px",marginBottom:12}}><div style={{color:C.warn,fontSize:10,fontWeight:700,marginBottom:2}}>ALERTAS</div><div style={{color:C.text,fontSize:12}}>{ficha.observacoes}</div></div>}
-
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
-          <h4 style={{color:C.text,fontSize:12,fontWeight:700}}>Linha do Tempo — Histórico Completo de Tratamentos</h4>
-          <Btn v={data.anamneses.find(a=>a.paciente_id===ficha.id)?"ok":"warn"} onClick={()=>{setFicha(null);setAnamneseModal(ficha);}} style={{fontSize:10,padding:"4px 10px"}}>
-            {data.anamneses.find(a=>a.paciente_id===ficha.id)?"✓ Ver Anamnese":"+ Preencher Anamnese"}
-          </Btn>
-        </div>
-
-        {/* Filtro por profissional — visível quando mais de um profissional já atendeu este paciente */}
-        {profissionaisDoTimeline.length>0&&
-          <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-            <span style={{color:C.muted,fontSize:11}}>Filtrar por:</span>
-            <button onClick={()=>setFiltroTimeline("todos")} style={{padding:"4px 11px",borderRadius:20,border:`1px solid ${filtroTimeline==="todos"?C.accent:C.border}`,background:filtroTimeline==="todos"?C.accentSoft:"transparent",color:filtroTimeline==="todos"?C.accent:C.muted,fontSize:11,fontWeight:filtroTimeline==="todos"?700:400,cursor:"pointer"}}>
-              Todos os profissionais
-            </button>
-            {isSupervisor
-              ? profissionaisDoTimeline.map(prof=>(
-                  <button key={prof.id} onClick={()=>setFiltroTimeline(String(prof.id))} style={{padding:"4px 11px",borderRadius:20,border:`1px solid ${filtroTimeline===String(prof.id)?prof.cor:C.border}`,background:filtroTimeline===String(prof.id)?prof.cor+"18":"transparent",color:filtroTimeline===String(prof.id)?prof.cor:C.muted,fontSize:11,fontWeight:filtroTimeline===String(prof.id)?700:400,cursor:"pointer"}}>
-                    {prof.nome}
-                  </button>
-                ))
-              : <button onClick={()=>setFiltroTimeline(String(user.profissionalId))} style={{padding:"4px 11px",borderRadius:20,border:`1px solid ${filtroTimeline===String(user.profissionalId)?C.accent:C.border}`,background:filtroTimeline===String(user.profissionalId)?C.accentSoft:"transparent",color:filtroTimeline===String(user.profissionalId)?C.accent:C.muted,fontSize:11,fontWeight:filtroTimeline===String(user.profissionalId)?700:400,cursor:"pointer"}}>
-                  Somente meus atendimentos
-                </button>
-            }
-          </div>
-        }
-
-        {/* Linha do tempo visual */}
-        {timeline.length===0
-          ?<p style={{color:C.muted,fontSize:12}}>Nenhum atendimento registrado{filtroTimeline!=="todos"?" com este filtro":""}.</p>
-          :<div style={{position:"relative",paddingLeft:22}}>
-            <div style={{position:"absolute",left:5,top:6,bottom:6,width:2,background:C.border}}/>
-            {timeline.map((at,idx)=>{
-              const prof=full.profissionais.find(p=>p.id===at.profissional_id);
-              return(
-                <div key={at.id} style={{position:"relative",marginBottom:idx===timeline.length-1?0:16}}>
-                  <div style={{position:"absolute",left:-22,top:3,width:12,height:12,borderRadius:"50%",background:prof?.cor||C.accent,border:`2px solid ${C.card}`,boxShadow:`0 0 0 2px ${prof?.cor||C.accent}30`}}/>
-                  <div style={{background:C.surface,borderRadius:10,padding:"10px 13px",border:`1px solid ${C.border}`}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:4}}>
-                      <div>
-                        <div style={{color:C.text,fontSize:13,fontWeight:700}}>{at.servico}</div>
-                        <div style={{color:C.muted,fontSize:10,marginTop:1}}>{fmtDate(at.data)}</div>
-                      </div>
-                      <div style={{textAlign:"right"}}>
-                        <div style={{color:C.accent,fontWeight:700,fontSize:13}}>{fmt(at.valor_final||at.valor)}</div>
-                        <Badge text={at.pago?"Pago":"Pendente"} color={at.pago?C.success:C.warn}/>
-                      </div>
-                    </div>
-                    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}>
-                      <div style={{width:16,height:16,borderRadius:"50%",background:(prof?.cor||C.accent)+"22",display:"flex",alignItems:"center",justifyContent:"center",color:prof?.cor||C.accent,fontWeight:700,fontSize:8}}>{prof?.nome?.[0]||"?"}</div>
-                      <span style={{color:C.muted,fontSize:11}}>{prof?.nome||"Profissional não identificado"}</span>
-                      {at.forma_pagamento&&<span style={{color:C.muted,fontSize:10}}>· {at.forma_pagamento}</span>}
-                    </div>
-                    {at.observacoes&&<div style={{color:C.muted,fontSize:11,marginTop:6,fontStyle:"italic"}}>"{at.observacoes}"</div>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        }
-      </Mod>}
+      {ficha&&<ProntuarioModal paciente={ficha} data={data} dadosCompletos={dadosCompletos} insert={insert} update={update} user={user} onClose={()=>setFicha(null)}/>}
 
       {anamneseModal&&<AnamneseModal paciente={anamneseModal} existente={data.anamneses.find(a=>a.paciente_id===anamneseModal.id)} onClose={()=>setAnamneseModal(null)} onSave={handleSaveAnamnese}/>}
     </div>
@@ -6614,8 +6714,8 @@ function Sistema({user, onLogout}) {
   const render = () => {
     switch(pag) {
       case "dashboard":    return <Dashboard data={dataFiltrada} user={user}/>;
-      case "agendamentos": return <Agendamentos {...p} onRealizar={(dados)=>{setAtendimentoParaAbrir(dados);setPag("atendimentos");}}/>;
-      case "atendimentos": return <Atendimentos {...p} user={user} abrirDados={atendimentoParaAbrir} onAbriu={()=>setAtendimentoParaAbrir(null)}/>;
+      case "agendamentos": return <Agendamentos {...p} onRealizar={(dados)=>{setAtendimentoParaAbrir(dados);setPag("atendimentos");}} dadosCompletos={data} user={user}/>;
+      case "atendimentos": return <Atendimentos {...p} user={user} dadosCompletos={data} abrirDados={atendimentoParaAbrir} onAbriu={()=>setAtendimentoParaAbrir(null)}/>;
       case "pacientes":    return <Pacientes {...p} dadosCompletos={data} user={user}/>;
       case "comissoes":    return <Comissoes data={dataFiltrada} update={update} insert={insert} user={user}/>;
       case "fornecedores": return <Fornecedores {...p}/>;
