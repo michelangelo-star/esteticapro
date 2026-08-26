@@ -379,11 +379,11 @@ const addMeses = (dataISO, meses) => { const d=new Date(dataISO+"T12:00:00"); d.
 const gerarUUID = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 /* Envio de WhatsApp via Z-API ou Wafly — mesmo path de endpoint nos dois
-   (instances/{id}/token/{token}/send-text), mas domínio base e cabeçalhos diferentes:
-   Wafly serve a API sob o próprio domínio (wafly.com.br/api-bridge-whats, não um
-   subdomínio api.*) e exige um Client-Token à parte do instance/token da conexão.
-   Usado tanto pelos lembretes de agendamento (Cadastros) quanto pelo convite de
-   anamnese digital (Agendamentos). */
+   (instances/{id}/token/{token}/send-text), só muda o domínio base: Wafly serve a API
+   sob o próprio domínio (wafly.com.br/api-bridge-whats, não um subdomínio api.*).
+   Confirmado no OpenAPI público deles (wafly.com.br/openapi.json) — autenticação é só
+   instance+token na própria URL, sem header extra. Usado tanto pelos lembretes de
+   agendamento (Cadastros) quanto pelo convite de anamnese digital (Agendamentos). */
 const enviarWhatsAppGenerico = async (clinicaConfig, telefone, mensagem) => {
   if(!clinicaConfig?.whatsapp_ativo) return false;
   const ehWafly = clinicaConfig.whatsapp_provider==="wafly";
@@ -391,14 +391,11 @@ const enviarWhatsAppGenerico = async (clinicaConfig, telefone, mensagem) => {
   const token = ehWafly ? clinicaConfig.wafly_token : clinicaConfig.zapi_token;
   const baseUrl = ehWafly ? "https://wafly.com.br/api-bridge-whats" : "https://api.z-api.io";
   if(!instance || !token) return false;
-  if(ehWafly && !clinicaConfig.wafly_client_token) return false;
   try {
     const numero = (telefone||"").replace(/\D/g,"");
     if(!numero) return false;
-    const headers = {"Content-Type":"application/json"};
-    if(ehWafly) headers["Client-Token"] = clinicaConfig.wafly_client_token;
     const r = await fetch(`${baseUrl}/instances/${instance}/token/${token}/send-text`,{
-      method:"POST", headers,
+      method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({phone:`55${numero}`, message:mensagem}),
     });
     return r.ok;
@@ -5356,7 +5353,7 @@ function Cadastros({data,insert,update,remove,user}) {
 
   // ── Lembretes WhatsApp ──
   const [clinicaConfig,setClinicaConfig] = useState({
-    whatsapp_ativo:false, whatsapp_provider:"zapi", zapi_instance:"", zapi_token:"", wafly_instance:"", wafly_token:"", wafly_client_token:"",
+    whatsapp_ativo:false, whatsapp_provider:"zapi", zapi_instance:"", zapi_token:"", wafly_instance:"", wafly_token:"",
     lembrete_1dia_ativo:true, lembrete_1dia_texto:"Olá {nome}! Passando para lembrar do seu horário amanhã, {data} às {hora} para {procedimento}. Contamos com você! 💕",
     lembrete_1hora_ativo:true, lembrete_1hora_texto:"Olá {nome}! Seu horário é daqui a 1 hora ({hora}) para {procedimento}. Já estamos te esperando! ✨",
   });
@@ -5938,7 +5935,6 @@ function Cadastros({data,insert,update,remove,user}) {
               ? <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <Inp label="Wafly Instance" value={clinicaConfig.wafly_instance} onChange={e=>setClinicaConfig(c=>({...c,wafly_instance:e.target.value}))} placeholder="Nome da instância"/>
                   <Inp label="Wafly Token" value={clinicaConfig.wafly_token} onChange={e=>setClinicaConfig(c=>({...c,wafly_token:e.target.value}))} placeholder="Token da instância"/>
-                  <Inp label="Wafly Client-Token" value={clinicaConfig.wafly_client_token} onChange={e=>setClinicaConfig(c=>({...c,wafly_client_token:e.target.value}))} placeholder="Client-Token da sua conta Wafly" style={{gridColumn:"1/-1"}}/>
                 </div>
               : <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <Inp label="Z-API Instance ID" value={clinicaConfig.zapi_instance} onChange={e=>setClinicaConfig(c=>({...c,zapi_instance:e.target.value}))} placeholder="Ex: 3D9F..."/>
