@@ -2512,8 +2512,12 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
     const atId = await salvarRascunho();
     if(!atId) return;
     const itensAtuais = itens.filter(i=>i.ref_id);
+    /* Profissional com "Estoque Próprio": os produtos/insumos são dela, não da clínica —
+       não baixa estoque do sistema (o custo dela é só a comissão, já tratada à parte). */
+    const profAtendimento = data.profissionais.find(p=>p.id===parseInt(cab.profissional_id));
+    const usaEstoqueProprio = !!profAtendimento?.estoque_proprio;
 
-    for(const item of itensAtuais){
+    for(const item of (usaEstoqueProprio?[]:itensAtuais)){
       if(item.tipo==="procedimento"){
         const insumos = (data.procedimento_insumos||[]).filter(pi=>pi.procedimento_id===parseInt(item.ref_id));
         for(const ins of insumos){
@@ -3742,6 +3746,8 @@ function Financeiro({data,insert,update,user}) {
   // 4. (-) Custo dos Serviços Prestados (categorizado manualmente + consumo automático de insumos) → 5. Lucro Bruto
   const dreCustosLinhas = linhasDoGrupo("custos");
   const dreCustoProdutos = data.atendimentos.reduce((s,at)=>{
+    /* Profissional com Estoque Próprio: o insumo/produto é dela, não custo da clínica */
+    if(data.profissionais.find(p=>p.id===at.profissional_id)?.estoque_proprio) return s;
     const itens=(data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
     if(itens.length>0){
       return s+itens.reduce((si,item)=>{
@@ -5208,7 +5214,7 @@ function Cadastros({data,insert,update,remove,user}) {
       {/* PROFISSIONAIS */}
       {aba==="prof"&&<>
         <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
-          <Btn onClick={()=>abrirModal(null,{nome:"",especialidade:"",tipo:"percentual",percentual:40,salario:0,cor:"#C9A96E",email:"",telefone:"",ativo:true,permite_cadastros:false})}><I.Plus s={12}/> Adicionar</Btn>
+          <Btn onClick={()=>abrirModal(null,{nome:"",especialidade:"",tipo:"percentual",percentual:40,salario:0,cor:"#C9A96E",email:"",telefone:"",ativo:true,permite_cadastros:false,estoque_proprio:false})}><I.Plus s={12}/> Adicionar</Btn>
         </div>
         <ST cols={["Nome","Especialidade","Remuneração","Cadastros","Cor","Status","Ações"]}
           rows={data.profissionais.map(p=>[
@@ -5243,6 +5249,16 @@ function Cadastros({data,insert,update,remove,user}) {
               <div>
                 <div style={{color:C.text,fontSize:12,fontWeight:600}}>Permitir cadastro de Produtos, Procedimentos e Fornecedores</div>
                 <div style={{color:C.muted,fontSize:11,marginTop:2}}>Quando marcado, este profissional (quando logado com acesso próprio) também vê e cadastra nessas 3 telas — além da agenda e atendimentos próprios.</div>
+              </div>
+            </label>
+          </div>
+
+          <div style={{background:C.warn+"10",borderRadius:9,padding:"11px 13px",marginBottom:14}}>
+            <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer"}}>
+              <input type="checkbox" checked={!!form.estoque_proprio} onChange={e=>fv("estoque_proprio",e.target.checked)} style={{marginTop:2,accentColor:C.warn,width:16,height:16}}/>
+              <div>
+                <div style={{color:C.text,fontSize:12,fontWeight:600}}>Estoque Próprio</div>
+                <div style={{color:C.muted,fontSize:11,marginTop:2}}>A profissional usa produtos e insumos dela — a clínica não controla nem baixa esse estoque, só paga a comissão. Ao fechar um atendimento dela, o sistema não desconta do estoque da clínica nem leva esse custo pro DRE.</div>
               </div>
             </label>
           </div>
