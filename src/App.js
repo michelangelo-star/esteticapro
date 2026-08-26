@@ -378,6 +378,26 @@ const addDias = (dataISO, dias) => { const d=new Date(dataISO+"T12:00:00"); d.se
 const addMeses = (dataISO, meses) => { const d=new Date(dataISO+"T12:00:00"); d.setMonth(d.getMonth()+(Number(meses)||0)); return d.toISOString().split("T")[0]; };
 const gerarUUID = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
+/* Envio de WhatsApp via Z-API ou Wafly (mesmo formato de URL nos dois) — usado tanto pelos
+   lembretes de agendamento (Cadastros) quanto pelo convite de anamnese digital (Agendamentos). */
+const enviarWhatsAppGenerico = async (clinicaConfig, telefone, mensagem) => {
+  if(!clinicaConfig?.whatsapp_ativo) return false;
+  const ehWafly = clinicaConfig.whatsapp_provider==="wafly";
+  const instance = ehWafly ? clinicaConfig.wafly_instance : clinicaConfig.zapi_instance;
+  const token = ehWafly ? clinicaConfig.wafly_token : clinicaConfig.zapi_token;
+  const baseUrl = ehWafly ? "https://api.wafly.com.br" : "https://api.z-api.io";
+  if(!instance || !token) return false;
+  try {
+    const numero = (telefone||"").replace(/\D/g,"");
+    if(!numero) return false;
+    const r = await fetch(`${baseUrl}/instances/${instance}/token/${token}/send-text`,{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({phone:`55${numero}`, message:mensagem}),
+    });
+    return r.ok;
+  } catch(e){ return false; }
+};
+
 /* FEFO — consome sempre o lote que vence primeiro. Usada em todo ponto que baixa estoque
    de um produto com "controla_validade" (fechamento de atendimento, ajuste manual de saída). */
 const consumirLotesFEFO = async (data, update, produtoId, qtdNecessaria) => {
@@ -1935,6 +1955,36 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
     setFormEspera({paciente_id:"",paciente:"",procedimento_id:"",servico:"",observacoes:""});
   };
 
+  const [enviandoAnamnese,setEnviandoAnamnese] = useState(null); // id do agendamento cujo convite está sendo enviado
+
+  /* Cria a ficha de anamnese digital (token novo) e manda o link por WhatsApp — o paciente
+     preenche remotamente, com verificação de telefone e assinatura eletrônica (Edge Function
+     "anamnese-publica" trata tudo isso, já que é escrita pública sem sessão logada). */
+  const solicitarAnamnese = async (ag) => {
+    const pac = data.pacientes.find(p=>p.id===ag.paciente_id);
+    if(!pac){ alert("Paciente não encontrado."); return; }
+    const telefone = pac.whatsapp||pac.telefone;
+    if(!telefone){ alert("Este paciente não tem telefone cadastrado."); return; }
+    setEnviandoAnamnese(ag.id);
+    try{
+      const clinicaRows = await sb.get("clinicas", `id=eq.${user.id}`);
+      const clinicaConfig = clinicaRows?.[0];
+      if(!clinicaConfig?.whatsapp_ativo){ alert('WhatsApp não configurado — vá em Cadastros → Lembretes WhatsApp antes de enviar fichas de anamnese.'); return; }
+      const segmento = data.empresa?.segmento_id ? (data.segmentos_empresa||[]).find(s=>s.id===data.empresa.segmento_id)?.nome : "";
+      const novaAnamnese = await insert("anamneses",{
+        paciente_id:pac.id, status:"aguardando_telefone",
+        solicitado_por_profissional_id:ag.profissional_id, segmento_ficha:segmento||"",
+      });
+      if(!novaAnamnese?.token){ alert("Não foi possível criar a ficha de anamnese."); return; }
+      const link = `${window.location.origin}${window.location.pathname}?ficha=${novaAnamnese.token}`;
+      const msg = `Olá ${pac.nome}! Por favor preencha sua ficha de anamnese antes do atendimento — é rápido e seguro: ${link}`;
+      const ok = await enviarWhatsAppGenerico(clinicaConfig, telefone, msg);
+      alert(ok?"Link de anamnese enviado por WhatsApp!":"Não foi possível enviar via WhatsApp. Verifique a configuração em Cadastros.");
+    } finally {
+      setEnviandoAnamnese(null);
+    }
+  };
+
   /* Pré-preenche o formulário de novo agendamento com quem está esperando — pensado
      pra usar assim que surge uma vaga (ex: logo depois de cancelar um agendamento). */
   const usarListaEspera = (item) => {
@@ -2285,6 +2335,7 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
                     </div>
                     <div style={{display:"flex",gap:5}}>
                       {foneWhats&&<a href={`https://wa.me/55${foneWhats}`} target="_blank" rel="noreferrer" title="Abrir conversa no WhatsApp" style={{background:C.success+"14",border:`1px solid ${C.success}30`,borderRadius:8,padding:"5px 9px",display:"flex",alignItems:"center",textDecoration:"none"}}><I.Whatsapp c={C.success} s={13}/></a>}
+                      {pac&&ag.status!=="cancelado"&&<button onClick={()=>solicitarAnamnese(ag)} disabled={enviandoAnamnese===ag.id} title="Enviar ficha de anamnese digital pro paciente preencher" style={{background:C.info+"14",border:`1px solid ${C.info}30`,borderRadius:8,padding:"5px 9px",display:"flex",alignItems:"center",cursor:"pointer",color:C.info,fontSize:10,fontWeight:600,gap:4}}>{enviandoAnamnese===ag.id?<Spin s={11} c={C.info}/>:<I.Clipboard s={11}/>} Anamnese</button>}
                       {ag.status==="aguardando"&&<Btn v="ok" onClick={()=>confirmar(ag.id)} style={{flex:1,justifyContent:"center",padding:"5px 0",fontSize:11}}><I.Check s={11}/> Confirmar</Btn>}
                       {(ag.status==="confirmado"||ag.status==="aguardando")&&<Btn v="i" onClick={()=>realizar(ag)} style={{flex:1,justifyContent:"center",padding:"5px 0",fontSize:11}}>Realizar</Btn>}
                       {ag.status!=="cancelado"&&ag.status!=="realizado"&&<Btn v="d" onClick={()=>cancelar(ag.id)} style={{padding:"5px 9px"}}><I.X s={11}/></Btn>}
@@ -3064,7 +3115,7 @@ function ProntuarioModal({paciente, data, dadosCompletos, insert, update, user, 
   },[paciente,full.atendimentos,full.profissionais]);
 
   const patologiasDoPaciente = (data.paciente_patologias||[]).filter(p=>p.paciente_id===paciente.id);
-  const anamnesesDoPaciente = (data.anamneses||[]).filter(a=>a.paciente_id===paciente.id);
+  const anamnesesDoPaciente = (data.anamneses||[]).filter(a=>a.paciente_id===paciente.id&&a.status==="preenchida").sort((a,b)=>(b.assinado_em||b.updated_at||"").localeCompare(a.assinado_em||a.updated_at||""));
 
   /* Timeline única — hoje só existe 1 anamnese por paciente (upsert); quando a anamnese
      digital remota virar histórico (rodada seguinte), múltiplas aparecem aqui automaticamente. */
@@ -3086,10 +3137,11 @@ function ProntuarioModal({paciente, data, dadosCompletos, insert, update, user, 
     if(!DEMO_MODE) await fetch(`${SUPABASE_URL}/rest/v1/paciente_patologias?id=eq.${id}`,{method:"DELETE",headers:getHeaders()});
   };
 
+  /* Sempre cria uma nova anamnese (histórico) em vez de sobrescrever a anterior —
+     é o que faz "todas as fichas que já preencheu" aparecerem na timeline em ordem
+     cronológica, em vez de só a mais recente. */
   const handleSaveAnamnese = async (formAnamnese) => {
-    const existente = data.anamneses.find(a=>a.paciente_id===paciente.id);
-    if(existente){ await update("anamneses",existente.id,{...formAnamnese,updated_at:new Date().toISOString()}); }
-    else { await insert("anamneses",{...formAnamnese,paciente_id:paciente.id}); }
+    await insert("anamneses",{...formAnamnese, paciente_id:paciente.id, status:"preenchida"});
     setAnamneseModal(null);
   };
 
@@ -3255,10 +3307,9 @@ function Pacientes({data,insert,update,dadosCompletos,user}) {
   },[data.pacientes,filt]);
 
   const salvar=async()=>{await insert("pacientes",{...form,cpf:maskCPF(form.cpf),telefone:maskFone(form.telefone),whatsapp:maskFone(form.whatsapp)});setModal(false);};
+  /* Sempre cria uma nova anamnese (histórico) — ver mesma nota em ProntuarioModal. */
   const handleSaveAnamnese=async(formAnamnese)=>{
-    const existente=data.anamneses.find(a=>a.paciente_id===anamneseModal.id);
-    if(existente){await update("anamneses",existente.id,{...formAnamnese,updated_at:new Date().toISOString()});}
-    else{await insert("anamneses",{...formAnamnese,paciente_id:anamneseModal.id});}
+    await insert("anamneses",{...formAnamnese, paciente_id:anamneseModal.id, status:"preenchida"});
     setAnamneseModal(null);
   };
 
@@ -5349,27 +5400,7 @@ function Cadastros({data,insert,update,remove,user}) {
       return diffMin>0 && diffMin<=60;
     });
 
-    /* Z-API e Wafly usam o mesmo formato de URL (instances/{id}/token/{token}/send-text),
-       então só trocam as credenciais conforme o provedor escolhido. Antes não checava o
-       status da resposta antes de marcar como enviado — se a API recusasse (crédito
-       esgotado, token errado etc.) o lembrete era marcado como enviado mesmo sem ir. */
-    const enviarWhatsApp = async (telefone, mensagem) => {
-      if(!clinicaConfig.whatsapp_ativo) return false;
-      const ehWafly = clinicaConfig.whatsapp_provider==="wafly";
-      const instance = ehWafly ? clinicaConfig.wafly_instance : clinicaConfig.zapi_instance;
-      const token = ehWafly ? clinicaConfig.wafly_token : clinicaConfig.zapi_token;
-      const baseUrl = ehWafly ? "https://api.wafly.com.br" : "https://api.z-api.io";
-      if(!instance || !token) return false;
-      try {
-        const numero = (telefone||"").replace(/\D/g,"");
-        if(!numero) return false;
-        const r = await fetch(`${baseUrl}/instances/${instance}/token/${token}/send-text`,{
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({phone:`55${numero}`, message:mensagem}),
-        });
-        return r.ok;
-      } catch(e){ return false; }
-    };
+    const enviarWhatsApp = (telefone, mensagem) => enviarWhatsAppGenerico(clinicaConfig, telefone, mensagem);
 
     if(clinicaConfig.lembrete_1dia_ativo){
       for(const ag of pendentes1dia){
@@ -7805,6 +7836,216 @@ function PainelAdmin({user, onLogout}) {
 }
 
 
+/* ─── FICHA DE ANAMNESE DIGITAL (pública, sem login) ────────────
+   Aberta pelo próprio paciente no celular via link enviado por WhatsApp (?ficha=TOKEN).
+   Fala só com a Edge Function "anamnese-publica" (o app nunca chama contas_receber/etc.
+   aqui — é a única tela do sistema que roda sem sessão autenticada nenhuma). */
+function FichaPublica({token}) {
+  const EDGE_URL = `${SUPABASE_URL}/functions/v1/anamnese-publica`;
+  const [passo,setPasso] = useState("carregando"); // carregando|otp_enviar|otp_verificar|formulario|assinatura|concluido|erro
+  const [dadosFicha,setDadosFicha] = useState(null);
+  const [erro,setErro] = useState("");
+  const [codigo,setCodigo] = useState("");
+  const [carregando,setCarregando] = useState(false);
+  const initForm = {estado_saude_geral:"",medicamentos:"",alergias:"",alergias_cosmeticos:"",outras_doencas:"",problemas_cardiacos:false,diabetes:false,hipertensao:false,tireoide:false,epilepsia:false,gestante:false,amamentando:false,oncologico:false,autoimune:false,tipo_pele:"",sensibilidade_pele:"",manchas:false,acne:false,cicatrizes:false,uso_acido:false,uso_retinol:false,protetor_solar:false,procedimentos_anteriores:"",reacoes_anteriores:"",fumante:false,alcool:"",atividade_fisica:"",qualidade_sono:"",nivel_estresse:"",alimentacao:"",objetivo_principal:"",expectativas:"",termo_aceito:false};
+  const [form,setForm] = useState(initForm);
+  const fset = (k,v) => setForm(p=>({...p,[k]:v}));
+  const [extra,setExtra] = useState({});
+  const eset = (k,v) => setExtra(p=>({...p,[k]:v}));
+
+  const chamar = async (action, extraBody={}) => {
+    const r = await fetch(EDGE_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action, token, ...extraBody})});
+    const json = await r.json().catch(()=>({erro:"Resposta inválida do servidor."}));
+    if(!r.ok) throw new Error(json.erro||"Não foi possível processar sua solicitação.");
+    return json;
+  };
+
+  useEffect(()=>{
+    (async ()=>{
+      try{
+        const dados = await chamar("carregar-ficha");
+        setDadosFicha(dados);
+        setPasso(dados.jaPreenchida ? "concluido" : "otp_enviar");
+      }catch(e){ setErro(e.message); setPasso("erro"); }
+    })();
+  },[]); // eslint-disable-line
+
+  const enviarCodigo = async () => {
+    setCarregando(true); setErro("");
+    try{ await chamar("enviar-otp"); setPasso("otp_verificar"); }
+    catch(e){ setErro(e.message); }
+    setCarregando(false);
+  };
+
+  const confirmarCodigo = async () => {
+    setCarregando(true); setErro("");
+    try{ await chamar("verificar-otp",{codigo:codigo.trim()}); setPasso("formulario"); }
+    catch(e){ setErro(e.message); }
+    setCarregando(false);
+  };
+
+  const enviarFicha = async (assinaturaBase64) => {
+    setCarregando(true); setErro("");
+    try{
+      await chamar("salvar-resposta",{respostas:form, respostasExtra:extra, assinaturaBase64, userAgent:navigator.userAgent});
+      setPasso("concluido");
+    }catch(e){ setErro(e.message); }
+    setCarregando(false);
+  };
+
+  const seg = (dadosFicha?.segmentoFicha||"").toLowerCase();
+  const ehOdonto = seg.includes("odont");
+  const ehBiomedica = seg.includes("biomed")||seg.includes("estét")||seg.includes("estet");
+
+  const wrapStyle = {minHeight:"100vh",background:C.bg,display:"flex",justifyContent:"center",padding:"20px 14px",fontFamily:"'Inter',sans-serif"};
+  const cardStyle = {width:"100%",maxWidth:480,background:C.card,borderRadius:16,padding:20,boxShadow:"0 4px 24px #4A3D6218",border:`1px solid ${C.border}`};
+
+  const Cabecalho = () => (
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
+      {dadosFicha?.empresaLogo && <img src={dadosFicha.empresaLogo} alt="" style={{width:40,height:40,objectFit:"contain",borderRadius:8}}/>}
+      <div>
+        <div style={{color:C.accent,fontWeight:700,fontSize:15}}>{dadosFicha?.empresaNome||"Ficha de Anamnese"}</div>
+        {dadosFicha?.profissionalNome&&<div style={{color:C.muted,fontSize:11}}>Solicitado por {dadosFicha.profissionalNome}</div>}
+      </div>
+    </div>
+  );
+
+  if(passo==="carregando") return <div style={wrapStyle}><div style={cardStyle}><div style={{textAlign:"center",padding:30}}><Spin s={22} c={C.accent}/><p style={{color:C.muted,fontSize:13,marginTop:12}}>Carregando sua ficha...</p></div></div></div>;
+
+  if(passo==="erro") return <div style={wrapStyle}><div style={cardStyle}><div style={{textAlign:"center",padding:20}}><I.Warn c={C.danger} s={28}/><p style={{color:C.danger,fontSize:13,marginTop:12,fontWeight:600}}>{erro||"Link inválido ou expirado."}</p><p style={{color:C.muted,fontSize:12,marginTop:6}}>Fale com a clínica pra receber um novo link.</p></div></div></div>;
+
+  if(passo==="concluido") return <div style={wrapStyle}><div style={cardStyle}><Cabecalho/><div style={{textAlign:"center",padding:20}}><I.Check c={C.success} s={32}/><p style={{color:C.text,fontSize:15,fontWeight:700,marginTop:12}}>Ficha enviada com sucesso!</p><p style={{color:C.muted,fontSize:12,marginTop:6}}>Obrigado, {dadosFicha?.pacienteNome}. Pode fechar esta janela.</p></div></div></div>;
+
+  if(passo==="otp_enviar") return (
+    <div style={wrapStyle}><div style={cardStyle}>
+      <Cabecalho/>
+      <p style={{color:C.text,fontSize:14,fontWeight:600,marginBottom:6}}>Olá, {dadosFicha?.pacienteNome}!</p>
+      <p style={{color:C.muted,fontSize:12,lineHeight:1.6,marginBottom:16}}>Antes de preencher sua ficha de anamnese, vamos confirmar seu telefone por segurança. Vamos enviar um código por WhatsApp para {dadosFicha?.telefoneMascarado}.</p>
+      {erro&&<div style={{background:C.danger+"14",border:`1px solid ${C.danger}30`,borderRadius:8,padding:"9px 12px",marginBottom:12,color:C.danger,fontSize:12}}>{erro}</div>}
+      <Btn onClick={enviarCodigo} disabled={carregando} style={{width:"100%",justifyContent:"center"}}>{carregando?<><Spin s={12} c="#FFFFFF"/>Enviando...</>:<><I.Whatsapp s={13}/> Enviar código por WhatsApp</>}</Btn>
+    </div></div>
+  );
+
+  if(passo==="otp_verificar") return (
+    <div style={wrapStyle}><div style={cardStyle}>
+      <Cabecalho/>
+      <p style={{color:C.text,fontSize:13,marginBottom:12}}>Digite o código de 6 dígitos que chegou no seu WhatsApp:</p>
+      <input value={codigo} onChange={e=>setCodigo(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000" inputMode="numeric"
+        style={{width:"100%",textAlign:"center",fontSize:26,letterSpacing:8,fontWeight:700,padding:"14px 10px",borderRadius:10,border:`1px solid ${C.border}`,color:C.text,marginBottom:14}}/>
+      {erro&&<div style={{background:C.danger+"14",border:`1px solid ${C.danger}30`,borderRadius:8,padding:"9px 12px",marginBottom:12,color:C.danger,fontSize:12}}>{erro}</div>}
+      <Btn onClick={confirmarCodigo} disabled={carregando||codigo.length<6} style={{width:"100%",justifyContent:"center",marginBottom:8}}>{carregando?<><Spin s={12} c="#FFFFFF"/>Confirmando...</>:"Confirmar código"}</Btn>
+      <button onClick={enviarCodigo} disabled={carregando} style={{width:"100%",background:"none",border:"none",color:C.accent,fontSize:12,padding:8,cursor:"pointer"}}>Reenviar código</button>
+    </div></div>
+  );
+
+  if(passo==="assinatura") return (
+    <div style={wrapStyle}><div style={cardStyle}>
+      <Cabecalho/>
+      <p style={{color:C.text,fontSize:13,fontWeight:600,marginBottom:10}}>Pra finalizar, assine abaixo:</p>
+      {erro&&<div style={{background:C.danger+"14",border:`1px solid ${C.danger}30`,borderRadius:8,padding:"9px 12px",marginBottom:12,color:C.danger,fontSize:12}}>{erro}</div>}
+      <SignaturePad onSave={enviarFicha} onCancel={()=>setPasso("formulario")}/>
+      {carregando&&<div style={{textAlign:"center",marginTop:10}}><Spin s={14} c={C.muted}/></div>}
+    </div></div>
+  );
+
+  // passo==="formulario"
+  const chk = (label,key) => (
+    <label style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",cursor:"pointer"}}>
+      <input type="checkbox" checked={!!form[key]} onChange={e=>fset(key,e.target.checked)} style={{width:17,height:17,accentColor:C.accent,flexShrink:0}}/>
+      <span style={{color:C.text,fontSize:13}}>{label}</span>
+    </label>
+  );
+  const chkExtra = (label,key) => (
+    <label style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",cursor:"pointer"}}>
+      <input type="checkbox" checked={!!extra[key]} onChange={e=>eset(key,e.target.checked)} style={{width:17,height:17,accentColor:C.info,flexShrink:0}}/>
+      <span style={{color:C.text,fontSize:13}}>{label}</span>
+    </label>
+  );
+
+  return (
+    <div style={wrapStyle}><div style={cardStyle}>
+      <Cabecalho/>
+      <p style={{color:C.muted,fontSize:11,marginBottom:16}}>Responda com calma — leva menos de 5 minutos. Todos os campos são confidenciais.</p>
+
+      <div style={{marginBottom:18}}>
+        <div style={{color:C.accent,fontSize:12,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Saúde Geral</div>
+        <TA label="Como está sua saúde geral?" value={form.estado_saude_geral} onChange={e=>fset("estado_saude_geral",e.target.value)}/>
+        <TA label="Usa algum medicamento? Quais?" value={form.medicamentos} onChange={e=>fset("medicamentos",e.target.value)}/>
+        <TA label="Tem alguma alergia (medicamentos, alimentos)?" value={form.alergias} onChange={e=>fset("alergias",e.target.value)}/>
+        <TA label="Alergia a cosméticos ou produtos de pele?" value={form.alergias_cosmeticos} onChange={e=>fset("alergias_cosmeticos",e.target.value)}/>
+        <TA label="Outras doenças ou condições de saúde?" value={form.outras_doencas} onChange={e=>fset("outras_doencas",e.target.value)}/>
+      </div>
+
+      <div style={{marginBottom:18}}>
+        <div style={{color:C.accent,fontSize:12,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>Condições Especiais</div>
+        {chk("Problemas cardíacos","problemas_cardiacos")}
+        {chk("Diabetes","diabetes")}
+        {chk("Hipertensão","hipertensao")}
+        {chk("Problemas de tireoide","tireoide")}
+        {chk("Epilepsia","epilepsia")}
+        {chk("Gestante","gestante")}
+        {chk("Amamentando","amamentando")}
+        {chk("Histórico oncológico","oncologico")}
+        {chk("Doença autoimune","autoimune")}
+      </div>
+
+      {!ehOdonto&&<div style={{marginBottom:18}}>
+        <div style={{color:C.accent,fontSize:12,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Histórico de Pele</div>
+        <Sel label="Tipo de pele" value={form.tipo_pele} onChange={e=>fset("tipo_pele",e.target.value)} options={[{value:"",label:"Selecione..."},{value:"seca",label:"Seca"},{value:"oleosa",label:"Oleosa"},{value:"mista",label:"Mista"},{value:"normal",label:"Normal"}]}/>
+        <Sel label="Sensibilidade da pele" value={form.sensibilidade_pele} onChange={e=>fset("sensibilidade_pele",e.target.value)} options={[{value:"",label:"Selecione..."},{value:"baixa",label:"Baixa"},{value:"media",label:"Média"},{value:"alta",label:"Alta"}]}/>
+        {chk("Manchas","manchas")}{chk("Acne","acne")}{chk("Cicatrizes","cicatrizes")}{chk("Uso de ácidos","uso_acido")}{chk("Uso de retinol","uso_retinol")}{chk("Usa protetor solar diariamente","protetor_solar")}
+        <TA label="Procedimentos estéticos anteriores" value={form.procedimentos_anteriores} onChange={e=>fset("procedimentos_anteriores",e.target.value)}/>
+        <TA label="Já teve alguma reação a procedimentos?" value={form.reacoes_anteriores} onChange={e=>fset("reacoes_anteriores",e.target.value)}/>
+      </div>}
+
+      {ehOdonto&&<div style={{marginBottom:18}}>
+        <div style={{color:C.info,fontSize:12,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Odontológico</div>
+        <Inp label="Data da última consulta odontológica" type="date" value={extra.ultima_consulta_odonto||""} onChange={e=>eset("ultima_consulta_odonto",e.target.value)}/>
+        {chkExtra("Sente dor ou sensibilidade nos dentes","dor_dentes")}
+        {chkExtra("Range os dentes (bruxismo)","bruxismo")}
+        {chkExtra("Sangramento na gengiva","sangramento_gengiva")}
+        {chkExtra("Já fez tratamento de canal","tratamento_canal")}
+        {chkExtra("Usa aparelho ortodôntico","usa_aparelho")}
+        <TA label="Alguma outra queixa odontológica?" value={extra.queixa_odonto||""} onChange={e=>eset("queixa_odonto",e.target.value)}/>
+      </div>}
+
+      {ehBiomedica&&<div style={{marginBottom:18}}>
+        <div style={{color:C.info,fontSize:12,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Biomédico / Harmonização</div>
+        {chkExtra("Já fez toxina botulínica antes","ja_fez_botox")}
+        {chkExtra("Já fez preenchimento antes","ja_fez_preenchimento")}
+        {chkExtra("Tem queloide (cicatriz espessada)","tem_queloide")}
+        {chkExtra("Usa anticoagulante","usa_anticoagulante")}
+        <TA label="Qual sua principal queixa estética?" value={extra.queixa_estetica||""} onChange={e=>eset("queixa_estetica",e.target.value)}/>
+      </div>}
+
+      <div style={{marginBottom:18}}>
+        <div style={{color:C.accent,fontSize:12,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Hábitos</div>
+        {chk("Fumante","fumante")}
+        <Sel label="Consome álcool" value={form.alcool} onChange={e=>fset("alcool",e.target.value)} options={[{value:"",label:"Selecione..."},{value:"nao",label:"Não"},{value:"social",label:"Socialmente"},{value:"frequente",label:"Frequentemente"}]}/>
+        <Sel label="Atividade física" value={form.atividade_fisica} onChange={e=>fset("atividade_fisica",e.target.value)} options={[{value:"",label:"Selecione..."},{value:"nenhuma",label:"Nenhuma"},{value:"leve",label:"Leve"},{value:"moderada",label:"Moderada"},{value:"intensa",label:"Intensa"}]}/>
+        <Sel label="Qualidade do sono" value={form.qualidade_sono} onChange={e=>fset("qualidade_sono",e.target.value)} options={[{value:"",label:"Selecione..."},{value:"ruim",label:"Ruim"},{value:"regular",label:"Regular"},{value:"boa",label:"Boa"}]}/>
+        <Sel label="Nível de estresse" value={form.nivel_estresse} onChange={e=>fset("nivel_estresse",e.target.value)} options={[{value:"",label:"Selecione..."},{value:"baixo",label:"Baixo"},{value:"medio",label:"Médio"},{value:"alto",label:"Alto"}]}/>
+        <TA label="Como é sua alimentação no geral?" value={form.alimentacao} onChange={e=>fset("alimentacao",e.target.value)}/>
+      </div>
+
+      <div style={{marginBottom:18}}>
+        <div style={{color:C.accent,fontSize:12,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>Objetivos</div>
+        <TA label="Qual seu objetivo principal com este atendimento?" value={form.objetivo_principal} onChange={e=>fset("objetivo_principal",e.target.value)}/>
+        <TA label="Quais suas expectativas?" value={form.expectativas} onChange={e=>fset("expectativas",e.target.value)}/>
+      </div>
+
+      <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",marginBottom:16,background:C.accentSoft,borderRadius:9,padding:12}}>
+        <input type="checkbox" checked={form.termo_aceito} onChange={e=>fset("termo_aceito",e.target.checked)} style={{marginTop:2,width:17,height:17,accentColor:C.accent,flexShrink:0}}/>
+        <span style={{color:C.text,fontSize:12,lineHeight:1.5}}>Declaro que as informações acima são verdadeiras e autorizo o uso destes dados pela clínica exclusivamente para fins de avaliação e segurança do meu atendimento.</span>
+      </label>
+
+      {erro&&<div style={{background:C.danger+"14",border:`1px solid ${C.danger}30`,borderRadius:8,padding:"9px 12px",marginBottom:12,color:C.danger,fontSize:12}}>{erro}</div>}
+
+      <Btn onClick={()=>setPasso("assinatura")} disabled={!form.termo_aceito} style={{width:"100%",justifyContent:"center"}}><I.Pen s={13}/> Ir para Assinatura</Btn>
+    </div></div>
+  );
+}
+
 export default function App() {
   const [tela, setTela] = useState("landing");
   const [user, setUser] = useState(null);
@@ -7816,6 +8057,13 @@ export default function App() {
     if (typeof window === "undefined") return "";
     const params = new URLSearchParams(window.location.search);
     return params.get("ref") || "";
+  });
+
+  /* Ficha de anamnese digital pública (?ficha=TOKEN) — o paciente abre esse link no
+     próprio celular, sem login nenhum. Substitui o app inteiro por essa tela isolada. */
+  const [fichaToken] = useState(()=>{
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("ficha") || "";
   });
 
   /* Detecta retorno do e-mail de recuperação de senha (#access_token=...&type=recovery) */
@@ -7833,6 +8081,8 @@ export default function App() {
   const handleLogin = u => { setUser(u); setShowLogin(false); setTela(u.isSuperAdmin ? "painel_admin" : u.isAfiliado ? "area_afiliado" : "sistema"); };
   const handleLogout = () => { setUser(null); setTela("landing"); };
   const handleCheckoutSuccess = u => { setUser(u); setCheckout(null); setTela("sistema"); };
+
+  if (fichaToken) return <><GS/><FichaPublica token={fichaToken}/></>;
 
   return (
     <>
