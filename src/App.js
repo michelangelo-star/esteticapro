@@ -489,6 +489,81 @@ const imprimirHTML = (titulo, corpoHtml, empresa, emitidoPor) => {
 };
 
 
+/* Monta e imprime o layout de uma ficha de anamnese preenchida (equipe ou remota via link). */
+const imprimirAnamnese = (anamnese, paciente, profissionais, empresa, emitidoPor) => {
+  const prof = (profissionais||[]).find(p=>p.id===anamnese.solicitado_por_profissional_id);
+  const ehDentista = !!prof?.eh_dentista;
+  const extra = anamnese.respostas_extra||{};
+  const condicoes = [
+    ["problemas_cardiacos","Problemas cardíacos"],["diabetes","Diabetes"],["hipertensao","Hipertensão"],
+    ["tireoide","Tireoide"],["epilepsia","Epilepsia"],["gestante","Gestante"],["amamentando","Amamentando"],
+    ["oncologico","Tratamento oncológico"],["autoimune","Doença autoimune"],
+  ].filter(([k])=>anamnese[k]).map(([,label])=>label);
+  const historicoEspecificoHtml = ehDentista ? `
+    <div class="quadro-titulo">Histórico Odontológico</div>
+    <div class="linha"><span>Motivo da consulta</span><strong>${extra.motivo_consulta||"—"}</strong></div>
+    <div class="linha"><span>Última consulta odontológica</span><strong>${extra.ultima_consulta_odonto?fmtDate(extra.ultima_consulta_odonto):"—"}</strong></div>
+    <p style="font-size:11px;color:#666;margin-top:6px;">${[
+      extra.dor_dentes&&"Dor/sensibilidade nos dentes", extra.sangramento_gengiva&&"Sangramento na gengiva",
+      extra.bruxismo&&"Bruxismo", extra.respirador_bucal&&"Respirador bucal", extra.tratamento_canal&&"Já fez canal",
+      extra.usa_aparelho&&"Usa aparelho ortodôntico", extra.usa_protese&&"Usa prótese/dentadura",
+      extra.reacao_anestesia&&"Reação prévia a anestesia odontológica", extra.disturbio_coagulacao&&"Distúrbio de coagulação",
+      extra.febre_reumatica&&"Febre reumática",
+    ].filter(Boolean).join(" · ")||"Nenhuma condição odontológica marcada"}</p>
+    ${extra.higiene_oral?`<div class="linha"><span>Higiene oral</span><strong>${extra.higiene_oral}</strong></div>`:""}
+    ${extra.queixa_odonto?`<div class="linha"><span>Outra queixa</span><strong>${extra.queixa_odonto}</strong></div>`:""}
+  ` : `
+    <div class="quadro-titulo">Histórico de Pele</div>
+    <div class="linha"><span>Tipo de pele</span><strong>${anamnese.tipo_pele||"—"}</strong></div>
+    <div class="linha"><span>Sensibilidade</span><strong>${anamnese.sensibilidade_pele||"—"}</strong></div>
+    <p style="font-size:11px;color:#666;margin-top:6px;">${[
+      anamnese.manchas&&"Manchas", anamnese.acne&&"Acne ativa", anamnese.cicatrizes&&"Cicatrizes",
+      anamnese.uso_acido&&"Usa ácidos", anamnese.uso_retinol&&"Usa retinol", anamnese.protetor_solar&&"Protetor solar diário",
+    ].filter(Boolean).join(" · ")||"Nenhuma condição de pele marcada"}</p>
+    ${anamnese.procedimentos_anteriores?`<div class="linha"><span>Procedimentos anteriores</span><strong>${anamnese.procedimentos_anteriores}</strong></div>`:""}
+    ${anamnese.reacoes_anteriores?`<div class="linha"><span>Reações anteriores</span><strong>${anamnese.reacoes_anteriores}</strong></div>`:""}
+  `;
+  const corpo = `
+    <h1>Ficha de Anamnese${ehDentista?" — Odontológica":""}</h1>
+    <div class="sub">${paciente?.nome||""}${prof?.nome?` · Profissional: ${prof.nome}`:""}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div class="quadro">
+        <div class="quadro-titulo">Saúde Geral</div>
+        <div class="linha"><span>Estado de saúde</span><strong>${anamnese.estado_saude_geral||"—"}</strong></div>
+        <div class="linha"><span>Medicamentos em uso</span><strong>${anamnese.medicamentos||"—"}</strong></div>
+        <div class="linha"><span>Alergias</span><strong>${anamnese.alergias||"—"}</strong></div>
+        <div class="linha"><span>Alergias a cosméticos</span><strong>${anamnese.alergias_cosmeticos||"—"}</strong></div>
+        <div class="linha" style="border-bottom:none;"><span>Outras doenças</span><strong>${anamnese.outras_doencas||"—"}</strong></div>
+      </div>
+      <div class="quadro">
+        <div class="quadro-titulo">Condições Especiais</div>
+        <p style="font-size:11px;color:#666;">${condicoes.join(" · ")||"Nenhuma condição marcada"}</p>
+      </div>
+    </div>
+    <div class="quadro" style="margin-bottom:12px;">${historicoEspecificoHtml}</div>
+    <div class="quadro" style="margin-bottom:16px;">
+      <div class="quadro-titulo">Hábitos de Vida</div>
+      <div class="linha"><span>Fumante</span><strong>${anamnese.fumante?"Sim":"Não"}</strong></div>
+      <div class="linha"><span>Consumo de álcool</span><strong>${anamnese.alcool||"—"}</strong></div>
+      <div class="linha"><span>Atividade física</span><strong>${anamnese.atividade_fisica||"—"}</strong></div>
+      <div class="linha"><span>Qualidade do sono</span><strong>${anamnese.qualidade_sono||"—"}</strong></div>
+      <div class="linha"><span>Nível de estresse</span><strong>${anamnese.nivel_estresse||"—"}</strong></div>
+      <div class="linha" style="border-bottom:none;"><span>Alimentação</span><strong>${anamnese.alimentacao||"—"}</strong></div>
+    </div>
+    <div class="quadro" style="margin-bottom:16px;">
+      <div class="quadro-titulo">Objetivos</div>
+      <div class="linha"><span>Objetivo principal</span><strong>${anamnese.objetivo_principal||"—"}</strong></div>
+      <div class="linha" style="border-bottom:none;"><span>Expectativas</span><strong>${anamnese.expectativas||"—"}</strong></div>
+    </div>
+    <div class="quadro">
+      <div class="quadro-titulo">Assinatura</div>
+      ${anamnese.assinatura_base64?`<img src="${anamnese.assinatura_base64}" style="max-width:280px;max-height:80px;"/>`:"<p style='font-size:11px;color:#999;'>Não assinada</p>"}
+      <p style="font-size:10px;color:#999;margin-top:6px;">Assinado em ${anamnese.assinado_em?new Date(anamnese.assinado_em).toLocaleString("pt-BR"):"—"}${anamnese.preenchida_remotamente?` · preenchido remotamente pelo paciente (assinatura eletrônica, telefone verificado por código)${anamnese.ip_assinatura?` · IP ${anamnese.ip_assinatura}`:""}`:""}</p>
+    </div>
+  `;
+  imprimirHTML(`Anamnese — ${paciente?.nome||""}`, corpo, empresa, emitidoPor);
+};
+
 /* ─── ÍCONES ─────────────────────────────────────────────────── */
 /* ─── LOGO VPBEAUTY ──────────────────────────────────────────── */
 const Logo = ({size=40}) => (
@@ -1199,7 +1274,7 @@ const Radio = ({label,k,value,form,onChange}) => ( // eslint-disable-line no-unu
   </label>
 );
 
-function AnamneseModal({ paciente, existente, onClose, onSave }) {
+function AnamneseModal({ paciente, existente, profissionais, onClose, onSave, readOnly, empresa, emitidoPor }) {
   const [step, setStep] = useState(1);
   const totalSteps = 5;
   const [form, setForm] = useState(existente || {
@@ -1211,10 +1286,21 @@ function AnamneseModal({ paciente, existente, onClose, onSave }) {
     fumante:false,alcool:"",atividade_fisica:"",alimentacao:"",qualidade_sono:"",nivel_estresse:"",
     areas_interesse:[],objetivo_principal:"",expectativas:"",contraindicacoes:"",
     termo_aceito:false,assinatura_base64:"",assinado_em:"",
+    solicitado_por_profissional_id:"", respostas_extra:{},
   });
   const [showSig, setShowSig] = useState(false);
   const f = (k,v) => setForm(p=>({...p,[k]:v}));
   const toggle = (k) => setForm(p=>({...p,[k]:!p[k]}));
+  const fx = (k,v) => setForm(p=>({...p,respostas_extra:{...(p.respostas_extra||{}),[k]:v}}));
+  const toggleX = (k) => setForm(p=>({...p,respostas_extra:{...(p.respostas_extra||{}),[k]:!(p.respostas_extra||{})[k]}}));
+  const ChkBoxX = ({label,k}) => (
+    <label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",padding:"5px 0"}}>
+      <input type="checkbox" checked={!!(form.respostas_extra||{})[k]} onChange={()=>toggleX(k)} style={{width:15,height:15,accentColor:C.info}}/>
+      <span style={{color:C.text,fontSize:13}}>{label}</span>
+    </label>
+  );
+  /* Se o profissional responsável for dentista, a Etapa 3 vira odontológica em vez de pele */
+  const ehDentista = !!(profissionais||[]).find(p=>p.id===parseInt(form.solicitado_por_profissional_id))?.eh_dentista;
 
   const handleSig = (b64) => { f("assinatura_base64",b64); f("assinado_em",new Date().toISOString()); setShowSig(false); };
 
@@ -1225,17 +1311,23 @@ function AnamneseModal({ paciente, existente, onClose, onSave }) {
   );
 
   return (
-    <Mod title={`Anamnese — ${paciente.nome}`} onClose={onClose} wide>
+    <Mod title={`${readOnly?"Anamnese (somente leitura)":"Anamnese"} — ${paciente.nome}`} onClose={onClose} wide>
+      {readOnly&&<div style={{background:C.info+"12",border:`1px solid ${C.info}30`,borderRadius:8,padding:"8px 12px",marginBottom:14,color:C.info,fontSize:11,fontWeight:600}}>Esta ficha já foi preenchida e assinada pelo paciente — apenas visualização.</div>}
       {/* Steps */}
       <div style={{display:"flex",alignItems:"center",marginBottom:18,gap:6}}>
         {Array.from({length:totalSteps},(_,i)=>(
           <div key={i} style={{flex:1,height:4,borderRadius:2,background:step>i?C.accent:step===i+1?C.accent+"60":C.border}}/>
         ))}
       </div>
-      <div style={{color:C.muted,fontSize:11,marginBottom:14}}>Etapa {step} de {totalSteps} — {["Saúde Geral","Condições Especiais","Histórico de Pele","Hábitos de Vida","Objetivos & Assinatura"][step-1]}</div>
+      <div style={{color:C.muted,fontSize:11,marginBottom:14}}>Etapa {step} de {totalSteps} — {["Saúde Geral","Condições Especiais",ehDentista?"Histórico Odontológico":"Histórico de Pele","Hábitos de Vida","Objetivos & Assinatura"][step-1]}</div>
+      <fieldset disabled={!!readOnly} style={{border:0,padding:0,margin:0}}>
 
       {step===1&&<div className="fu">
         <h4 style={{color:C.accent,fontSize:12,fontWeight:700,marginBottom:12,textTransform:"uppercase",letterSpacing:1}}>Saúde Geral</h4>
+        {profissionais&&profissionais.length>0&&
+          <Sel label="Profissional responsável" value={form.solicitado_por_profissional_id} onChange={e=>f("solicitado_por_profissional_id",e.target.value)}
+            options={[{value:"",label:"Selecione..."}, ...profissionais.map(p=>({value:p.id,label:p.nome}))]}/>
+        }
         <TA label="Como está sua saúde geral atualmente?" value={form.estado_saude_geral} onChange={e=>f("estado_saude_geral",e.target.value)} placeholder="Descreva brevemente..."/>
         <TA label="Medicamentos em uso (nome e dosagem)" value={form.medicamentos} onChange={e=>f("medicamentos",e.target.value)} placeholder="Ex: Losartana 50mg, Rivotril 0,5mg..."/>
         <TA label="Alergias conhecidas" value={form.alergias} onChange={e=>f("alergias",e.target.value)} placeholder="Medicamentos, alimentos, látex..."/>
@@ -1262,7 +1354,25 @@ function AnamneseModal({ paciente, existente, onClose, onSave }) {
         </div>
       </div>}
 
-      {step===3&&<div className="fu">
+      {step===3&&(ehDentista?<div className="fu">
+        <h4 style={{color:C.info,fontSize:12,fontWeight:700,marginBottom:12,textTransform:"uppercase",letterSpacing:1}}>Histórico Odontológico</h4>
+        <TA label="Motivo da consulta / queixa principal" value={(form.respostas_extra||{}).motivo_consulta||""} onChange={e=>fx("motivo_consulta",e.target.value)} placeholder="Dor, estética, rotina, urgência..."/>
+        <Inp label="Data da última consulta odontológica" type="date" value={(form.respostas_extra||{}).ultima_consulta_odonto||""} onChange={e=>fx("ultima_consulta_odonto",e.target.value)}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:12}}>
+          <ChkBoxX label="Sente dor/sensibilidade nos dentes" k="dor_dentes"/>
+          <ChkBoxX label="Sangramento na gengiva" k="sangramento_gengiva"/>
+          <ChkBoxX label="Range os dentes (bruxismo)" k="bruxismo"/>
+          <ChkBoxX label="Respirador bucal" k="respirador_bucal"/>
+          <ChkBoxX label="Já fez tratamento de canal" k="tratamento_canal"/>
+          <ChkBoxX label="Usa aparelho ortodôntico" k="usa_aparelho"/>
+          <ChkBoxX label="Usa prótese/dentadura" k="usa_protese"/>
+          <ChkBoxX label="Já teve reação a anestesia odontológica" k="reacao_anestesia"/>
+          <ChkBoxX label="Distúrbio de coagulação/sangramento" k="disturbio_coagulacao"/>
+          <ChkBoxX label="Febre reumática" k="febre_reumatica"/>
+        </div>
+        <TA label="Frequência de escovação e uso de fio dental" value={(form.respostas_extra||{}).higiene_oral||""} onChange={e=>fx("higiene_oral",e.target.value)} placeholder="Ex: escovo 3x/dia, uso fio às vezes..."/>
+        <TA label="Outra queixa odontológica" value={(form.respostas_extra||{}).queixa_odonto||""} onChange={e=>fx("queixa_odonto",e.target.value)}/>
+      </div>:<div className="fu">
         <h4 style={{color:C.accent,fontSize:12,fontWeight:700,marginBottom:12,textTransform:"uppercase",letterSpacing:1}}>Histórico de Pele</h4>
         <Sel label="Tipo de pele" value={form.tipo_pele} onChange={e=>f("tipo_pele",e.target.value)} options={[{value:"",label:"Selecione..."},{value:"normal",label:"Normal"},{value:"seca",label:"Seca"},{value:"oleosa",label:"Oleosa"},{value:"mista",label:"Mista"},{value:"sensivel",label:"Sensível"}]}/>
         <Sel label="Sensibilidade" value={form.sensibilidade_pele} onChange={e=>f("sensibilidade_pele",e.target.value)} options={[{value:"",label:"Selecione..."},{value:"nenhuma",label:"Nenhuma"},{value:"baixa",label:"Baixa"},{value:"moderada",label:"Moderada"},{value:"alta",label:"Alta"}]}/>
@@ -1276,7 +1386,7 @@ function AnamneseModal({ paciente, existente, onClose, onSave }) {
         </div>
         <TA label="Procedimentos estéticos anteriores" value={form.procedimentos_anteriores} onChange={e=>f("procedimentos_anteriores",e.target.value)} placeholder="Botox, preenchimento, laser, peelings..."/>
         <TA label="Reações a procedimentos anteriores" value={form.reacoes_anteriores} onChange={e=>f("reacoes_anteriores",e.target.value)} placeholder="Alergias, irritações, inchaços..."/>
-      </div>}
+      </div>)}
 
       {step===4&&<div className="fu">
         <h4 style={{color:C.accent,fontSize:12,fontWeight:700,marginBottom:12,textTransform:"uppercase",letterSpacing:1}}>Hábitos de Vida</h4>
@@ -1323,13 +1433,19 @@ function AnamneseModal({ paciente, existente, onClose, onSave }) {
           }
         </div>
       </div>}
+      </fieldset>
 
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:16,gap:8}}>
         <Btn v="g" onClick={()=>step>1?setStep(s=>s-1):onClose()}>← {step>1?"Anterior":"Cancelar"}</Btn>
-        {step<totalSteps
-          ? <Btn onClick={()=>setStep(s=>s+1)}>Próxima →</Btn>
-          : <Btn onClick={()=>onSave(form)} disabled={!form.termo_aceito||!form.assinatura_base64}><I.Check s={12}/> Salvar Anamnese</Btn>
-        }
+        <div style={{display:"flex",gap:8}}>
+          {!!existente&&<Btn v="g" onClick={()=>imprimirAnamnese(form,paciente,profissionais,empresa,emitidoPor)}><I.Printer s={12}/> Imprimir</Btn>}
+          {step<totalSteps
+            ? <Btn onClick={()=>setStep(s=>s+1)}>Próxima →</Btn>
+            : readOnly
+              ? <Btn v="g" onClick={onClose}>Fechar</Btn>
+              : <Btn onClick={()=>onSave(form)} disabled={!form.termo_aceito||!form.assinatura_base64}><I.Check s={12}/> Salvar Anamnese</Btn>
+          }
+        </div>
       </div>
     </Mod>
   );
@@ -1956,6 +2072,7 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
   };
 
   const [enviandoAnamnese,setEnviandoAnamnese] = useState(null); // id do agendamento cujo convite está sendo enviado
+  const [verAnamnese,setVerAnamnese] = useState(null); // registro de anamnese já preenchida, pra visualizar
 
   /* Cria a ficha de anamnese digital (token novo) e manda o link por WhatsApp — o paciente
      preenche remotamente, com verificação de telefone e assinatura eletrônica (Edge Function
@@ -1967,7 +2084,8 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
     if(!telefone){ alert("Este paciente não tem telefone cadastrado."); return; }
     setEnviandoAnamnese(ag.id);
     try{
-      const segmento = data.empresa?.segmento_id ? (data.segmentos_empresa||[]).find(s=>s.id===data.empresa.segmento_id)?.nome : "";
+      const profDoAgendamento = data.profissionais.find(p=>p.id===ag.profissional_id);
+      const segmento = profDoAgendamento?.eh_dentista ? "Odontologia" : (data.empresa?.segmento_id ? (data.segmentos_empresa||[]).find(s=>s.id===data.empresa.segmento_id)?.nome : "");
       const novaAnamnese = await insert("anamneses",{
         paciente_id:pac.id, status:"aguardando_telefone",
         solicitado_por_profissional_id:ag.profissional_id, segmento_ficha:segmento||"",
@@ -2311,6 +2429,7 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
                 const cor = p?.cor||C.accent;
                 const pac=data.pacientes.find(pc=>pc.id===ag.paciente_id);
                 const foneWhats=(pac?.whatsapp||pac?.telefone||"").replace(/\D/g,"");
+                const anamnesePreenchida = pac&&(data.anamneses||[]).filter(a=>a.paciente_id===pac.id&&a.status==="preenchida").sort((a,b)=>(b.assinado_em||b.updated_at||"").localeCompare(a.assinado_em||a.updated_at||""))[0];
                 return(
                   <div key={ag.id} className="fc" style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${cor}`,borderRadius:12,padding:14,boxShadow:"0 1px 8px #7C5CBF0A"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -2332,7 +2451,10 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
                     </div>
                     <div style={{display:"flex",gap:5}}>
                       {foneWhats&&<a href={`https://wa.me/55${foneWhats}`} target="_blank" rel="noreferrer" title="Abrir conversa no WhatsApp" style={{background:C.success+"14",border:`1px solid ${C.success}30`,borderRadius:8,padding:"5px 9px",display:"flex",alignItems:"center",textDecoration:"none"}}><I.Whatsapp c={C.success} s={13}/></a>}
-                      {pac&&ag.status!=="cancelado"&&<button onClick={()=>solicitarAnamnese(ag)} disabled={enviandoAnamnese===ag.id} title="Enviar ficha de anamnese digital pro paciente preencher" style={{background:C.info+"14",border:`1px solid ${C.info}30`,borderRadius:8,padding:"5px 9px",display:"flex",alignItems:"center",cursor:"pointer",color:C.info,fontSize:10,fontWeight:600,gap:4}}>{enviandoAnamnese===ag.id?<Spin s={11} c={C.info}/>:<I.Clipboard s={11}/>} Anamnese</button>}
+                      {pac&&ag.status!=="cancelado"&&(anamnesePreenchida
+                        ? <button onClick={()=>setVerAnamnese(anamnesePreenchida)} title="Ver ficha de anamnese já preenchida" style={{background:C.success+"14",border:`1px solid ${C.success}30`,borderRadius:8,padding:"5px 9px",display:"flex",alignItems:"center",cursor:"pointer",color:C.success,fontSize:10,fontWeight:600,gap:4}}><I.Check s={11}/> Anamnese ✓</button>
+                        : <button onClick={()=>solicitarAnamnese(ag)} disabled={enviandoAnamnese===ag.id} title="Enviar ficha de anamnese digital pro paciente preencher" style={{background:C.info+"14",border:`1px solid ${C.info}30`,borderRadius:8,padding:"5px 9px",display:"flex",alignItems:"center",cursor:"pointer",color:C.info,fontSize:10,fontWeight:600,gap:4}}>{enviandoAnamnese===ag.id?<Spin s={11} c={C.info}/>:<I.Clipboard s={11}/>} Anamnese</button>
+                      )}
                       {ag.status==="aguardando"&&<Btn v="ok" onClick={()=>confirmar(ag.id)} style={{flex:1,justifyContent:"center",padding:"5px 0",fontSize:11}}><I.Check s={11}/> Confirmar</Btn>}
                       {(ag.status==="confirmado"||ag.status==="aguardando")&&<Btn v="i" onClick={()=>realizar(ag)} style={{flex:1,justifyContent:"center",padding:"5px 0",fontSize:11}}>Realizar</Btn>}
                       {ag.status!=="cancelado"&&ag.status!=="realizado"&&<Btn v="d" onClick={()=>cancelar(ag.id)} style={{padding:"5px 9px"}}><I.X s={11}/></Btn>}
@@ -2438,6 +2560,7 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
       </Mod>}
 
       {prontuarioAberto&&<ProntuarioModal paciente={prontuarioAberto} data={data} dadosCompletos={dadosCompletos} insert={insert} update={update} user={user} onClose={()=>setProntuarioAberto(null)}/>}
+      {verAnamnese&&<AnamneseModal paciente={data.pacientes.find(p=>p.id===verAnamnese.paciente_id)||{nome:"Paciente"}} existente={verAnamnese} profissionais={data.profissionais} readOnly empresa={data.empresa} emitidoPor={user?.nome} onClose={()=>setVerAnamnese(null)} onSave={()=>{}}/>}
     </div>
   );
 }
@@ -3283,18 +3406,25 @@ function ProntuarioModal({paciente, data, dadosCompletos, insert, update, user, 
         </div>
       }
 
-      {anamneseModal&&<AnamneseModal paciente={paciente} existente={anamneseModal===true?null:anamneseModal} onClose={()=>setAnamneseModal(null)} onSave={handleSaveAnamnese}/>}
+      {anamneseModal&&<AnamneseModal paciente={paciente} existente={anamneseModal===true?null:anamneseModal} profissionais={full.profissionais} empresa={full.empresa} emitidoPor={user?.nome} onClose={()=>setAnamneseModal(null)} onSave={handleSaveAnamnese}/>}
     </Mod>
   );
 }
 
 function Pacientes({data,insert,update,dadosCompletos,user}) {
   const [modal,setModal]=useState(false);
+  const [editingPaciente,setEditingPaciente]=useState(null);
   const [ficha,setFicha]=useState(null);
   const [anamneseModal,setAnamneseModal]=useState(null);
   const [filt,setFilt]=useState({busca:"",tag:""});
   const ff=(k,v)=>setFilt(p=>({...p,[k]:v}));
-  const [form,setForm]=useState({nome:"",cpf:"",telefone:"",whatsapp:"",email:"",nascimento:"",sexo:"",profissao:"",endereco:"",cidade:"",estado:"",cep:"",como_conheceu:"",observacoes:""});
+  const initForm={nome:"",cpf:"",telefone:"",whatsapp:"",email:"",nascimento:"",sexo:"",profissao:"",endereco:"",cidade:"",estado:"",cep:"",como_conheceu:"",observacoes:""};
+  const [form,setForm]=useState(initForm);
+  const abrirCadastro=(paciente)=>{
+    if(paciente){ setEditingPaciente(paciente); setForm({...initForm,...paciente}); }
+    else { setEditingPaciente(null); setForm(initForm); }
+    setModal(true);
+  };
 
   const lista=useMemo(()=>{
     let l=[...data.pacientes];
@@ -3303,7 +3433,12 @@ function Pacientes({data,insert,update,dadosCompletos,user}) {
     return l;
   },[data.pacientes,filt]);
 
-  const salvar=async()=>{await insert("pacientes",{...form,cpf:maskCPF(form.cpf),telefone:maskFone(form.telefone),whatsapp:maskFone(form.whatsapp)});setModal(false);};
+  const salvar=async()=>{
+    const rec={...form,cpf:maskCPF(form.cpf),telefone:maskFone(form.telefone),whatsapp:maskFone(form.whatsapp)};
+    if(editingPaciente) await update("pacientes",editingPaciente.id,rec);
+    else await insert("pacientes",rec);
+    setModal(false); setEditingPaciente(null);
+  };
   /* Sempre cria uma nova anamnese (histórico) — ver mesma nota em ProntuarioModal. */
   const handleSaveAnamnese=async(formAnamnese)=>{
     await insert("anamneses",{...formAnamnese, paciente_id:anamneseModal.id, status:"preenchida"});
@@ -3314,11 +3449,11 @@ function Pacientes({data,insert,update,dadosCompletos,user}) {
 
   return(
     <div>
-      <PH title="Pacientes" sub={`${lista.length} de ${data.pacientes.length} cadastrados`}><Btn onClick={()=>setModal(true)}><I.Plus s={12}/> Cadastrar</Btn></PH>
+      <PH title="Pacientes" sub={`${lista.length} de ${data.pacientes.length} cadastrados`}><Btn onClick={()=>abrirCadastro(null)}><I.Plus s={12}/> Cadastrar</Btn></PH>
       <FilterBar filters={[{key:"busca",type:"text",label:"Buscar por nome, CPF, telefone..."},{key:"tag",type:"select",label:"Tag",options:todasTags.map(t=>({value:t,label:t}))}]} values={filt} onChange={ff}/>
 
       <ST cols={["Nome","CPF","WhatsApp","Última visita","Total gasto","Visitas","Tags","Ações"]}
-        rows={lista.map(p=>{const anamnese=data.anamneses.find(a=>a.paciente_id===p.id);return[
+        rows={lista.map(p=>{const anamnese=data.anamneses.find(a=>a.paciente_id===p.id&&a.status==="preenchida");return[
           <span style={{fontWeight:600,color:C.text}}>{p.nome}</span>,
           <span style={{color:C.muted,fontSize:11}}>{p.cpf||"—"}</span>,
           <span style={{color:C.muted,fontSize:11}}>{p.whatsapp||p.telefone||"—"}</span>,
@@ -3328,12 +3463,13 @@ function Pacientes({data,insert,update,dadosCompletos,user}) {
           <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{(p.tags||[]).map(t=><Badge key={t} text={t} color={C.purple}/>)}</div>,
           <div style={{display:"flex",gap:4}}>
             <Btn v="g" onClick={()=>setFicha(p)} style={{padding:"3px 7px"}}><I.Eye s={11}/></Btn>
+            <Btn v="g" onClick={()=>abrirCadastro(p)} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
             <Btn v={anamnese?"ok":"warn"} onClick={()=>setAnamneseModal(p)} style={{padding:"3px 7px",fontSize:9}}>{anamnese?"Anamnese ✓":"Anamnese"}</Btn>
           </div>
         ];})}
       />
 
-      {modal&&<Mod title="Novo Paciente" onClose={()=>setModal(false)} wide>
+      {modal&&<Mod title={editingPaciente?"Editar Paciente":"Novo Paciente"} onClose={()=>{setModal(false);setEditingPaciente(null);}} wide>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Nome completo" value={form.nome} onChange={e=>setForm(f=>({...f,nome:e.target.value}))} style={{gridColumn:"1/-1"}}/>
           <Inp label="CPF" value={form.cpf} onChange={e=>setForm(f=>({...f,cpf:maskCPF(e.target.value)}))} placeholder="000.000.000-00"/>
@@ -3350,14 +3486,14 @@ function Pacientes({data,insert,update,dadosCompletos,user}) {
         </div>
         <TA label="Observações / Alergias" value={form.observacoes} onChange={e=>setForm(f=>({...f,observacoes:e.target.value}))}/>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <Btn v="g" onClick={()=>setModal(false)}>Cancelar</Btn>
+          <Btn v="g" onClick={()=>{setModal(false);setEditingPaciente(null);}}>Cancelar</Btn>
           <Btn onClick={salvar} disabled={!form.nome}><I.Check s={12}/> Salvar</Btn>
         </div>
       </Mod>}
 
       {ficha&&<ProntuarioModal paciente={ficha} data={data} dadosCompletos={dadosCompletos} insert={insert} update={update} user={user} onClose={()=>setFicha(null)}/>}
 
-      {anamneseModal&&<AnamneseModal paciente={anamneseModal} existente={data.anamneses.find(a=>a.paciente_id===anamneseModal.id)} onClose={()=>setAnamneseModal(null)} onSave={handleSaveAnamnese}/>}
+      {anamneseModal&&<AnamneseModal paciente={anamneseModal} existente={data.anamneses.find(a=>a.paciente_id===anamneseModal.id&&a.status==="preenchida")} profissionais={data.profissionais} empresa={data.empresa} emitidoPor={user?.nome} onClose={()=>setAnamneseModal(null)} onSave={handleSaveAnamnese}/>}
     </div>
   );
 }
@@ -5488,7 +5624,7 @@ function Cadastros({data,insert,update,remove,user}) {
   };
 
   const salvar = async () => {
-    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",adq:"adquirentes",prof:"profissionais",equip:"equipamentos",cat:catAba==="contasdre"?"contas_dre":"categorias_financeiras"};
+    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",adq:"adquirentes",prof:"profissionais",equip:"equipamentos",catprod:"categorias_produtos",cat:catAba==="contasdre"?"contas_dre":"categorias_financeiras"};
     const table = tableMap[aba];
     if(!table) return;
     let rec = form;
@@ -5510,7 +5646,7 @@ function Cadastros({data,insert,update,remove,user}) {
       <PH title="Cadastros" sub="Configurações e dados auxiliares"/>
 
       <div style={{display:"flex",gap:7,marginBottom:16,flexWrap:"wrap"}}>
-        {[["empresa","Empresa"],["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["adq","Adquirentes"],["cat","Categorias"],["prof","Profissionais"],["equip","Equipamentos"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
+        {[["empresa","Empresa"],["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["adq","Adquirentes"],["cat","Categorias"],["catprod","Categ. Produtos"],["prof","Profissionais"],["equip","Equipamentos"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
           <button key={a[0]} onClick={()=>{setAba(a[0]);setModal(false);setMsgUser("");}}
             style={{padding:"7px 14px",borderRadius:8,border:`1px solid ${aba===a[0]?C.accent:C.border}`,background:aba===a[0]?C.accentSoft:"transparent",color:aba===a[0]?C.accent:C.muted,fontSize:12,fontWeight:aba===a[0]?700:400,cursor:"pointer"}}>
             {a[1]}
@@ -5752,10 +5888,36 @@ function Cadastros({data,insert,update,remove,user}) {
         </>}
       </>}
 
+      {/* CATEGORIAS DE PRODUTO/PROCEDIMENTO */}
+      {aba==="catprod"&&<>
+        <p style={{color:C.muted,fontSize:11,marginBottom:11}}>Categorias compartilhadas entre Produtos e Procedimentos — também podem ser criadas na hora, direto naquelas telas.</p>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
+          <Btn onClick={()=>abrirModal(null,{nome:"",ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
+        </div>
+        <ST cols={["Categoria","Status","Ações"]}
+          rows={(data.categorias_produtos||[]).map(c=>[
+            <span style={{fontWeight:600}}>{c.nome}</span>,
+            <Badge text={c.ativo?"Ativa":"Inativa"} color={c.ativo?C.success:C.muted}/>,
+            <div style={{display:"flex",gap:4}}>
+              <Btn v="g" onClick={()=>abrirModal(c,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
+              <Btn v="d" onClick={()=>update("categorias_produtos",c.id,{ativo:!c.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+            </div>
+          ])}
+          empty="Nenhuma categoria cadastrada."
+        />
+        {modal&&<Mod title={editing?"Editar Categoria":"Nova Categoria"} onClose={()=>{setModal(false);setEditing(null);}}>
+          <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)}/>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+            <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
+            <Btn onClick={salvar}><I.Check s={12}/> Salvar</Btn>
+          </div>
+        </Mod>}
+      </>}
+
       {/* PROFISSIONAIS */}
       {aba==="prof"&&<>
         <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
-          <Btn onClick={()=>abrirModal(null,{nome:"",especialidade:"",tipo:"percentual",percentual:40,salario:0,cor:"#C9A96E",email:"",telefone:"",ativo:true,permite_cadastros:false,estoque_proprio:false})}><I.Plus s={12}/> Adicionar</Btn>
+          <Btn onClick={()=>abrirModal(null,{nome:"",especialidade:"",tipo:"percentual",percentual:40,salario:0,cor:"#C9A96E",email:"",telefone:"",ativo:true,permite_cadastros:false,estoque_proprio:false,eh_dentista:false})}><I.Plus s={12}/> Adicionar</Btn>
         </div>
         <ST cols={["Nome","Especialidade","Remuneração","Cadastros","Cor","Status","Ações"]}
           rows={data.profissionais.map(p=>[
@@ -5800,6 +5962,16 @@ function Cadastros({data,insert,update,remove,user}) {
               <div>
                 <div style={{color:C.text,fontSize:12,fontWeight:600}}>Estoque Próprio</div>
                 <div style={{color:C.muted,fontSize:11,marginTop:2}}>A profissional usa produtos e insumos dela — a clínica não controla nem baixa esse estoque, só paga a comissão. Ao fechar um atendimento dela, o sistema não desconta do estoque da clínica nem leva esse custo pro DRE.</div>
+              </div>
+            </label>
+          </div>
+
+          <div style={{background:C.info+"10",borderRadius:9,padding:"11px 13px",marginBottom:14}}>
+            <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer"}}>
+              <input type="checkbox" checked={!!form.eh_dentista} onChange={e=>fv("eh_dentista",e.target.checked)} style={{marginTop:2,accentColor:C.info,width:16,height:16}}/>
+              <div>
+                <div style={{color:C.text,fontSize:12,fontWeight:600}}>É Dentista?</div>
+                <div style={{color:C.muted,fontSize:11,marginTop:2}}>Quando marcado, a ficha de anamnese enviada para os pacientes desta profissional usa o modelo odontológico (histórico dental) em vez do modelo padrão de estética.</div>
               </div>
             </label>
           </div>
