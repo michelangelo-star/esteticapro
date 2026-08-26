@@ -295,6 +295,10 @@ const mkDemo = () => ({
     {id:2,atendimento_id:3,profissional_id:1,paciente:"Carla Mendonça",servico:"Preenchimento Labial",valor_atendimento:1200,percentual:40,valor_comissao:480,status:"paga",data_atendimento:"2025-05-22",data_pagamento:"2025-05-25",conta_id:1},
   ],
   caixa_diario:[],
+  adquirentes:[
+    {id:1,nome:"Stone",taxa_percentual:2.5,prazo_repasse_dias:1,max_parcelas:12,ativo:true},
+    {id:2,nome:"Cielo",taxa_percentual:3.2,prazo_repasse_dias:30,max_parcelas:12,ativo:true},
+  ],
   salas:[
     {id:1,nome:"Sala 1 - Estética Facial",descricao:"18m², maca elétrica, espelho iluminado",valor_aluguel:1500,status:"alugada",locatario_nome:"Juliana Freitas",locatario_cpf:"123.456.789-00",locatario_telefone:"(11)98888-4444",contrato_inicio:"2025-01-10",contrato_fim:"2025-12-31",contrato_arquivo_nome:"",contrato_arquivo_base64:""},
     {id:2,nome:"Sala 2 - Estética Corporal",descricao:"22m², maca de massagem, ducha",valor_aluguel:1800,status:"disponivel"},
@@ -321,6 +325,7 @@ const mkDemo = () => ({
 const fmt = v => (Number(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const fmtN = v => (Number(v)||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const today = () => new Date().toISOString().split("T")[0];
+const addDias = (dataISO, dias) => { const d=new Date(dataISO+"T12:00:00"); d.setDate(d.getDate()+(Number(dias)||0)); return d.toISOString().split("T")[0]; };
 const mesAtualRange = () => { const h=new Date(); const de=new Date(h.getFullYear(),h.getMonth(),1); const ate=new Date(h.getFullYear(),h.getMonth()+1,0); return {de:de.toISOString().split("T")[0], ate:ate.toISOString().split("T")[0]}; };
 
 /* Estrutura padrão de DRE gerencial — os 7 grupos são fixos (formato de mercado);
@@ -342,6 +347,34 @@ const maskFone = v => v.replace(/\D/g,"").slice(0,11).replace(/(\d{2})(\d{5})(\d
 const maskCNPJ = v => v.replace(/\D/g,"").slice(0,14).replace(/(\d{2})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1/$2").replace(/(\d{4})(\d{1,2})$/,"$1-$2");
 const maskCEP = v => v.replace(/\D/g,"").slice(0,8).replace(/(\d{5})(\d)/,"$1-$2");
 const maskCpfCnpj = v => v.replace(/\D/g,"").length>11 ? maskCNPJ(v) : maskCPF(v);
+
+/* Impressão genérica — monta um iframe oculto com o HTML formatado e chama window.print().
+   Não existe biblioteca de impressão no projeto; esse é o único ponto usado por todas as telas. */
+const imprimirHTML = (titulo, corpoHtml) => {
+  const iframe = document.createElement("iframe");
+  Object.assign(iframe.style,{position:"fixed",right:"0",bottom:"0",width:"0",height:"0",border:"0"});
+  document.body.appendChild(iframe);
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head><title>${titulo}</title><meta charset="utf-8"/><style>
+    body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:28px;}
+    h1{font-size:19px;margin:0 0 3px;color:#5B3F8C;}
+    .sub{font-size:11px;color:#777;margin-bottom:20px;}
+    .linha{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #eee;}
+    table{width:100%;border-collapse:collapse;margin:14px 0;}
+    th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #ddd;font-size:12px;}
+    th{color:#777;text-transform:uppercase;font-size:9px;letter-spacing:.5px;}
+    .total{font-size:16px;font-weight:700;text-align:right;margin-top:12px;}
+    .assinatura{margin-top:70px;border-top:1px solid #333;width:280px;padding-top:6px;font-size:11px;color:#555;}
+    @media print{body{padding:0;}}
+  </style></head><body>${corpoHtml}</body></html>`);
+  doc.close();
+  setTimeout(()=>{
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+    setTimeout(()=>iframe.remove(),1000);
+  },200);
+};
 
 
 /* ─── ÍCONES ─────────────────────────────────────────────────── */
@@ -409,6 +442,7 @@ const I = {
   ShoppingCart:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>,
   CreditCard:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
   ArrowUpDown:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>,
+  Printer:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>,
 };
 
 /* ─── CSS ────────────────────────────────────────────────────── */
@@ -695,6 +729,7 @@ function useData(clinicaId) {
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
+        adquirentes,
       ] = await Promise.all([
         sb.get("profissionais",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("fornecedores",        `clinica_id=eq.${cid}&ativo=eq.true`),
@@ -724,6 +759,7 @@ function useData(clinicaId) {
         sb.get("aluguel_pagamentos",  `clinica_id=eq.${cid}&order=vencimento.desc`),
         sb.get("horarios_profissional",`clinica_id=eq.${cid}`),
         sb.get("bloqueios_agenda",    `clinica_id=eq.${cid}&order=data_inicio.desc`),
+        sb.get("adquirentes",         `clinica_id=eq.${cid}&order=nome.asc`),
       ]);
 
       setData({
@@ -735,6 +771,7 @@ function useData(clinicaId) {
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
+        adquirentes,
       });
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
@@ -2055,11 +2092,13 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
   const totalPago = lista.filter(a=>a.pago).reduce((s,a)=>s+(Number(a.valor_final||a.valor)||0),0);
 
   /* Recebimento — só supervisor. Roteia o valor conforme a forma de pagamento:
-     dinheiro cai direto no Caixa Mestre; as demais formas usam a conta escolhida
-     no fechamento do atendimento. */
-  /* Sugere a conta de destino conforme a forma de pagamento negociada no atendimento:
-     dinheiro sempre cai no Caixa Mestre; as demais formas usam a conta escolhida no fechamento
-     (mas o caixa pode ajustar na hora de confirmar, no modal de recebimento). */
+     - Dinheiro/Pix (sem prazo de compensação): cai na hora, direto na conta escolhida.
+     - Cartão/Crediário/Cheque (forma com "Prazo (dias)" cadastrado em Formas de Pagamento):
+       vira uma conta a receber pendente com vencimento = data do atendimento + prazo — só
+       entra de fato no caixa quando essa conta a receber for baixada em Financeiro (é ali
+       que a conta de destino do repasse é escolhida, quando o dinheiro realmente cair). */
+  const formaEhImediata = (fp) => !fp || (Number(fp.prazo_dias)||0)<=0;
+
   const contaSugerida = (at) => {
     const contaCaixaMestre = data.contas_bancarias.find(c=>c.tipo==="caixa_master");
     const fp = data.formas_pagamento.find(f=>f.id===at.forma_pagamento_id);
@@ -2068,33 +2107,76 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
   };
 
   const abrirReceberModal = (at) => {
-    const sugerida = contaSugerida(at);
+    const fp = data.formas_pagamento.find(f=>f.id===at.forma_pagamento_id);
+    const sugerida = formaEhImediata(fp) ? contaSugerida(at) : null;
     setContaEscolhida(sugerida?String(sugerida.id):"");
     setReceberModal(at);
   };
 
   const receber = async (at, contaId) => {
-    const contaDestino = data.contas_bancarias.find(c=>c.id===parseInt(contaId));
     const fp = data.formas_pagamento.find(f=>f.id===at.forma_pagamento_id);
-    if(!contaDestino){ alert("Selecione a conta que vai receber o valor."); return; }
-
     const valor = Number(at.valor_final||at.valor)||0;
     const catAtendimentos = (data.categorias_financeiras||[]).find(c=>c.tipo==="receita"&&c.nome==="Atendimentos");
     const atItens = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
     const descNomes = atItens.length>0 ? atItens.map(i=>i.descricao).join(", ") : at.servico;
-
-    /* A conta a receber nasce agora, já quitada — é o registro do recebimento em si */
-    await insert("contas_receber",{
+    const camposBase = {
       paciente:at.paciente, paciente_id:at.paciente_id, atendimento_id:at.id,
       descricao:`Atendimento — ${descNomes}`, valor,
-      vencimento:today(), categoria_id:catAtendimentos?.id||null,
+      categoria_id:catAtendimentos?.id||null,
       data_lancamento:today(), data_competencia:at.data,
-      status:"quitado", forma_pagamento:fp?.nome||"", forma_pagamento_id:at.forma_pagamento_id||null,
-      conta_id:contaDestino.id, data_baixa:today(),
-    });
+      forma_pagamento:fp?.nome||"", forma_pagamento_id:at.forma_pagamento_id||null,
+    };
+
+    if(formaEhImediata(fp)){
+      const contaDestino = data.contas_bancarias.find(c=>c.id===parseInt(contaId));
+      if(!contaDestino){ alert("Selecione a conta que vai receber o valor."); return; }
+      /* A conta a receber nasce agora, já quitada — é o registro do recebimento em si */
+      await insert("contas_receber",{...camposBase, vencimento:today(), status:"quitado", conta_id:contaDestino.id, data_baixa:today()});
+      await insert("movimentacoes",{conta_id:contaDestino.id, tipo:"entrada", origem:"atendimento", origem_id:at.id, descricao:`Recebimento — ${at.paciente}`, valor, data:today()});
+    } else {
+      /* Fica pendente até o repasse cair — a baixa (com escolha da conta) acontece
+         em Financeiro > Contas a Receber, no dia em que o dinheiro efetivamente entrar. */
+      await insert("contas_receber",{...camposBase, vencimento:addDias(at.data, fp?.prazo_dias||0), status:"aberto"});
+    }
     await update("atendimentos", at.id, {status:"recebido", pago:true});
-    await insert("movimentacoes",{conta_id:contaDestino.id, tipo:"entrada", origem:"atendimento", origem_id:at.id, descricao:`Recebimento — ${at.paciente}`, valor, data:today()});
     await gerarComissaoSeAplicavel(at);
+  };
+
+  /* Impressão (não depende de banco) — pedida a qualquer momento pra qualquer atendimento fechado/recebido */
+  const imprimirAtendimento = (at) => {
+    const prof = data.profissionais.find(p=>p.id===at.profissional_id);
+    const atItens = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
+    const linhas = atItens.length>0 ? atItens : [{descricao:at.servico,quantidade:1,valor_unitario:at.valor,valor_total:at.valor}];
+    const corpo = `
+      <h1>Atendimento</h1>
+      <div class="sub">VPBeauty</div>
+      <div class="linha"><span>Paciente</span><strong>${at.paciente||""}</strong></div>
+      <div class="linha"><span>Profissional</span><strong>${prof?.nome||""}</strong></div>
+      <div class="linha"><span>Data</span><strong>${fmtDate(at.data)}</strong></div>
+      <table><thead><tr><th>Item</th><th>Qtd.</th><th>Valor Unit.</th><th>Subtotal</th></tr></thead>
+      <tbody>${linhas.map(i=>`<tr><td>${i.descricao||""}</td><td>${i.quantidade||1}</td><td>${fmt(i.valor_unitario)}</td><td>${fmt(i.valor_total)}</td></tr>`).join("")}</tbody></table>
+      ${Number(at.desconto)>0?`<div class="linha"><span>Desconto</span><strong>-${fmt(at.desconto)}</strong></div>`:""}
+      <div class="total">Total: ${fmt(at.valor_final||at.valor)}</div>
+      <div class="linha" style="margin-top:14px"><span>Forma de pagamento</span><strong>${at.forma_pagamento||"—"}</strong></div>
+    `;
+    imprimirHTML(`Atendimento — ${at.paciente}`, corpo);
+  };
+
+  const imprimirRecibo = (at) => {
+    const atItens = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
+    const descNomes = atItens.length>0 ? atItens.map(i=>i.descricao).join(", ") : at.servico;
+    const valor = Number(at.valor_final||at.valor)||0;
+    const corpo = `
+      <h1>Recibo de Pagamento</h1>
+      <div class="sub">VPBeauty</div>
+      <p style="font-size:13px;line-height:1.7;margin-top:10px;">
+        Recebemos de <strong>${at.paciente||""}</strong> a quantia de <strong>${fmt(valor)}</strong>,
+        referente a <strong>${descNomes}</strong>, pago via <strong>${at.forma_pagamento||"—"}</strong>,
+        em ${fmtDate(today())}.
+      </p>
+      <div class="assinatura">Assinatura</div>
+    `;
+    imprimirHTML(`Recibo — ${at.paciente}`, corpo);
   };
 
   const estornar = async (at) => {
@@ -2259,6 +2341,8 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
               {status==="fechado"&&isSupervisor&&<Btn v="ok" onClick={()=>abrirReceberModal(at)} style={{padding:"3px 9px",fontSize:10}}>Receber</Btn>}
               {status==="recebido"&&isSupervisor&&<Btn v="g" onClick={()=>estornar(at)} style={{padding:"3px 9px",fontSize:10}}>Estornar</Btn>}
               {status!=="aberto"&&<Btn v="g" onClick={()=>abrirEdicao(at)} style={{padding:"3px 7px"}}><I.Eye s={11}/></Btn>}
+              {status!=="aberto"&&<Btn v="g" onClick={()=>imprimirAtendimento(at)} style={{padding:"3px 7px"}} title="Imprimir atendimento"><I.Printer s={11}/></Btn>}
+              {status==="recebido"&&<Btn v="g" onClick={()=>imprimirRecibo(at)} style={{padding:"3px 7px"}} title="Emitir recibo"><I.Receipt s={11}/></Btn>}
             </div>
           ];
         })}
@@ -2372,7 +2456,11 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
         </div>}
       </Mod>}
 
-      {receberModal&&<Mod title="Confirmar Recebimento" onClose={()=>{setReceberModal(null);setContaEscolhida("");}}>
+      {receberModal&&(()=>{
+        const fpModal = data.formas_pagamento.find(f=>f.id===receberModal.forma_pagamento_id);
+        const imediato = formaEhImediata(fpModal);
+        return (
+      <Mod title="Confirmar Recebimento" onClose={()=>{setReceberModal(null);setContaEscolhida("");}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:13,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
             <span style={{color:C.muted,fontSize:11}}>Paciente</span>
@@ -2388,26 +2476,37 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
           </div>
         </div>
 
-        <Sel label="Vai cair em qual conta?" value={contaEscolhida} onChange={e=>setContaEscolhida(e.target.value)}
-          options={[{value:"",label:"Selecione..."}, ...data.contas_bancarias.map(c=>({value:String(c.id),label:`${c.nome} (${c.tipo})`}))]}/>
+        {imediato ? <>
+          <Sel label="Vai cair em qual conta?" value={contaEscolhida} onChange={e=>setContaEscolhida(e.target.value)}
+            options={[{value:"",label:"Selecione..."}, ...data.contas_bancarias.map(c=>({value:String(c.id),label:`${c.nome} (${c.tipo})`}))]}/>
 
-        {!contaSugerida(receberModal)&&<div style={{background:C.warn+"12",border:`1px solid ${C.warn}30`,borderRadius:8,padding:"8px 12px",marginTop:10,display:"flex",gap:8,alignItems:"center"}}>
-          <I.Warn c={C.warn} s={13}/>
-          <span style={{color:C.warn,fontSize:11}}>Este atendimento não tinha conta de destino definida no fechamento — escolha manualmente onde o valor vai entrar.</span>
+          {!contaSugerida(receberModal)&&<div style={{background:C.warn+"12",border:`1px solid ${C.warn}30`,borderRadius:8,padding:"8px 12px",marginTop:10,display:"flex",gap:8,alignItems:"center"}}>
+            <I.Warn c={C.warn} s={13}/>
+            <span style={{color:C.warn,fontSize:11}}>Este atendimento não tinha conta de destino definida no fechamento — escolha manualmente onde o valor vai entrar.</span>
+          </div>}
+        </> : <div style={{background:C.info+"10",border:`1px solid ${C.info}25`,borderRadius:8,padding:"10px 12px",display:"flex",gap:8,alignItems:"flex-start"}}>
+          <I.Warn c={C.info} s={13}/>
+          <span style={{color:C.info,fontSize:11}}>
+            "{receberModal.forma_pagamento}" tem prazo de compensação — o valor entra como <strong>conta a receber pendente</strong>, com vencimento em <strong>{fmtDate(addDias(receberModal.data, fpModal?.prazo_dias||0))}</strong>. Quando o repasse cair de fato, dê baixa em <strong>Financeiro → Contas a Receber</strong> escolhendo ali a conta que recebeu.
+          </span>
         </div>}
 
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
           <Btn v="g" onClick={()=>{setReceberModal(null);setContaEscolhida("");}}>Cancelar</Btn>
-          <Btn v="ok" disabled={!contaEscolhida||recebendo} onClick={async()=>{
+          <Btn v="ok" disabled={(imediato&&!contaEscolhida)||recebendo} onClick={async()=>{
             setRecebendo(true);
-            await receber(receberModal, contaEscolhida);
+            const atRecebido = receberModal;
+            await receber(atRecebido, contaEscolhida);
             setRecebendo(false);
             setReceberModal(null); setContaEscolhida("");
+            if(window.confirm("Recebimento confirmado! Deseja emitir o recibo de pagamento agora?")) imprimirRecibo(atRecebido);
           }}>
             <I.Check s={12}/> {recebendo?"Recebendo...":"Confirmar Recebimento"}
           </Btn>
         </div>
-      </Mod>}
+      </Mod>
+        );
+      })()}
     </div>
   );
 }
@@ -2943,19 +3042,34 @@ function Estoque({data,insert,update}) {
         />
       </>}
 
-      {aba==="produtos"&&<ST cols={["Produto","Fornecedor","Categoria","Estoque Atual","Mínimo","Custo Unit.","Valor Total","Status","Ajuste"]}
-        rows={data.produtos.map(p=>{const forn=data.fornecedores.find(f=>f.id===p.fornecedor_id);const cr=p.estoque_atual<=p.estoque_minimo;return[
-          <span style={{fontWeight:600,color:C.text}}>{p.nome}</span>,
-          <span style={{fontSize:11}}>{forn?.nome_fantasia||"—"}</span>,
-          <span style={{color:C.muted,fontSize:11}}>{p.categoria||"—"}</span>,
-          <span style={{color:cr?C.danger:C.success,fontWeight:700}}>{fmtN(p.estoque_atual)} {p.unidade}</span>,
-          <span style={{color:C.muted}}>{fmtN(p.estoque_minimo)}</span>,
-          <span style={{color:C.accent}}>{fmt(p.custo_unitario)}</span>,
-          <span style={{fontWeight:600}}>{fmt(p.estoque_atual*p.custo_unitario)}</span>,
-          <Badge text={cr?"Crítico":"OK"} color={cr?C.danger:C.success}/>,
-          <Btn v="g" onClick={()=>setAjusteModal(p)} style={{padding:"3px 8px",fontSize:10}}><I.Edit s={11}/> Ajustar</Btn>
-        ];})}
-      />}
+      {aba==="produtos"&&<>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:9}}>
+          <Btn v="g" onClick={()=>{
+            const linhas = data.produtos.map(p=>{
+              const forn=data.fornecedores.find(f=>f.id===p.fornecedor_id);
+              const cr=p.estoque_atual<=p.estoque_minimo;
+              return `<tr><td>${p.nome}</td><td>${forn?.nome_fantasia||"—"}</td><td>${p.categoria||"—"}</td><td${cr?' style="color:#c0392b;font-weight:700"':""}>${fmtN(p.estoque_atual)} ${p.unidade}</td><td>${fmtN(p.estoque_minimo)}</td><td>${fmt(p.custo_unitario)}</td><td>${fmt(p.estoque_atual*p.custo_unitario)}</td></tr>`;
+            }).join("");
+            const corpo = `<h1>Posição de Estoque</h1><div class="sub">VPBeauty — gerado em ${fmtDate(today())}</div>
+              <table><thead><tr><th>Produto</th><th>Fornecedor</th><th>Categoria</th><th>Estoque Atual</th><th>Mínimo</th><th>Custo Unit.</th><th>Valor Total</th></tr></thead><tbody>${linhas}</tbody></table>
+              <div class="total">Valor total em estoque: ${fmt(totalEstoque)}</div>`;
+            imprimirHTML("Posição de Estoque", corpo);
+          }}><I.Printer s={12}/> Imprimir</Btn>
+        </div>
+        <ST cols={["Produto","Fornecedor","Categoria","Estoque Atual","Mínimo","Custo Unit.","Valor Total","Status","Ajuste"]}
+          rows={data.produtos.map(p=>{const forn=data.fornecedores.find(f=>f.id===p.fornecedor_id);const cr=p.estoque_atual<=p.estoque_minimo;return[
+            <span style={{fontWeight:600,color:C.text}}>{p.nome}</span>,
+            <span style={{fontSize:11}}>{forn?.nome_fantasia||"—"}</span>,
+            <span style={{color:C.muted,fontSize:11}}>{p.categoria||"—"}</span>,
+            <span style={{color:cr?C.danger:C.success,fontWeight:700}}>{fmtN(p.estoque_atual)} {p.unidade}</span>,
+            <span style={{color:C.muted}}>{fmtN(p.estoque_minimo)}</span>,
+            <span style={{color:C.accent}}>{fmt(p.custo_unitario)}</span>,
+            <span style={{fontWeight:600}}>{fmt(p.estoque_atual*p.custo_unitario)}</span>,
+            <Badge text={cr?"Crítico":"OK"} color={cr?C.danger:C.success}/>,
+            <Btn v="g" onClick={()=>setAjusteModal(p)} style={{padding:"3px 8px",fontSize:10}}><I.Edit s={11}/> Ajustar</Btn>
+          ];})}
+        />
+      </>}
 
       {/* MODAL ENTRADA — múltiplos produtos */}
       {entradaModal&&<Mod title="Entrada de Compra" onClose={()=>setEntradaModal(false)} full>
@@ -4422,7 +4536,7 @@ function Cadastros({data,insert,update,remove,user}) {
   };
 
   const salvar = async () => {
-    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",prof:"profissionais",cat:catAba==="contasdre"?"contas_dre":"categorias_financeiras"};
+    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",adq:"adquirentes",prof:"profissionais",cat:catAba==="contasdre"?"contas_dre":"categorias_financeiras"};
     const table = tableMap[aba];
     if(!table) return;
     let rec = form;
@@ -4444,7 +4558,7 @@ function Cadastros({data,insert,update,remove,user}) {
       <PH title="Cadastros" sub="Configurações e dados auxiliares"/>
 
       <div style={{display:"flex",gap:7,marginBottom:16,flexWrap:"wrap"}}>
-        {[["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["cat","Categorias"],["prof","Profissionais"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
+        {[["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["adq","Adquirentes"],["cat","Categorias"],["prof","Profissionais"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
           <button key={a[0]} onClick={()=>{setAba(a[0]);setModal(false);setMsgUser("");}}
             style={{padding:"7px 14px",borderRadius:8,border:`1px solid ${aba===a[0]?C.accent:C.border}`,background:aba===a[0]?C.accentSoft:"transparent",color:aba===a[0]?C.accent:C.muted,fontSize:12,fontWeight:aba===a[0]?700:400,cursor:"pointer"}}>
             {a[1]}
@@ -4507,6 +4621,40 @@ function Cadastros({data,insert,update,remove,user}) {
             <Inp label="Agência" value={form.agencia||""} onChange={e=>fv("agencia",e.target.value)}/>
             <Inp label="Conta" value={form.conta||""} onChange={e=>fv("conta",e.target.value)}/>
             <Inp label="Saldo inicial (R$)" type="number" value={form.saldo_inicial||0} onChange={e=>fv("saldo_inicial",e.target.value)}/>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+            <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
+            <Btn onClick={salvar}><I.Check s={12}/> Salvar</Btn>
+          </div>
+        </Mod>}
+      </>}
+
+      {/* ADQUIRENTES DE CARTÃO */}
+      {aba==="adq"&&<>
+        <p style={{color:C.muted,fontSize:11,marginBottom:11}}>Cadastre as maquininhas/adquirentes de cartão. No fechamento do atendimento com pagamento em cartão, o valor vira uma conta a receber com vencimento na data do repasse (data do atendimento + prazo abaixo) — só entra de fato no caixa quando essa conta a receber for baixada.</p>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
+          <Btn onClick={()=>abrirModal(null,{nome:"",taxa_percentual:0,prazo_repasse_dias:30,max_parcelas:1,ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
+        </div>
+        <ST cols={["Adquirente","Taxa %","Prazo de Repasse","Máx. Parcelas","Status","Ações"]}
+          rows={(data.adquirentes||[]).map(adq=>[
+            <span style={{fontWeight:600}}>{adq.nome}</span>,
+            <span style={{color:C.warn}}>{fmtN(adq.taxa_percentual)}%</span>,
+            <span style={{color:C.muted}}>{adq.prazo_repasse_dias} dias</span>,
+            <span style={{color:C.muted}}>{adq.max_parcelas}x</span>,
+            <Badge text={adq.ativo?"Ativo":"Inativo"} color={adq.ativo?C.success:C.muted}/>,
+            <div style={{display:"flex",gap:4}}>
+              <Btn v="g" onClick={()=>abrirModal(adq,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
+              <Btn v="d" onClick={()=>update("adquirentes",adq.id,{ativo:!adq.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+            </div>
+          ])}
+          empty="Nenhuma adquirente cadastrada."
+        />
+        {modal&&<Mod title={editing?"Editar Adquirente":"Nova Adquirente"} onClose={()=>{setModal(false);setEditing(null);}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} placeholder="Stone, Cielo, InfinitePay..." style={{gridColumn:"1/-1"}}/>
+            <Inp label="Taxa (%)" type="number" value={form.taxa_percentual||0} onChange={e=>fv("taxa_percentual",e.target.value)}/>
+            <Inp label="Prazo de repasse (dias)" type="number" value={form.prazo_repasse_dias||0} onChange={e=>fv("prazo_repasse_dias",e.target.value)}/>
+            <Inp label="Máximo de parcelas" type="number" value={form.max_parcelas||1} onChange={e=>fv("max_parcelas",e.target.value)}/>
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
             <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
