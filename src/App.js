@@ -3276,18 +3276,26 @@ function Estoque({data,insert,update}) {
       </>}
 
       {aba==="produtos"&&<>
-        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:9}}>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:9}}>
           <Btn v="g" onClick={()=>{
             const linhas = data.produtos.map(p=>{
               const forn=data.fornecedores.find(f=>f.id===p.fornecedor_id);
               const cr=p.estoque_atual<=p.estoque_minimo;
               return `<tr><td>${p.nome}</td><td>${forn?.nome_fantasia||"—"}</td><td>${p.categoria||"—"}</td><td${cr?' style="color:#c0392b;font-weight:700"':""}>${fmtN(p.estoque_atual)} ${p.unidade}</td><td>${fmtN(p.estoque_minimo)}</td><td>${fmt(p.custo_unitario)}</td><td>${fmt(p.estoque_atual*p.custo_unitario)}</td></tr>`;
             }).join("");
-            const corpo = `<h1>Posição de Estoque</h1><div class="sub">VPBeauty — gerado em ${fmtDate(today())}</div>
+            const corpo = `<h1>Posição de Estoque</h1><div class="sub">gerado em ${fmtDate(today())}</div>
               <table><thead><tr><th>Produto</th><th>Fornecedor</th><th>Categoria</th><th>Estoque Atual</th><th>Mínimo</th><th>Custo Unit.</th><th>Valor Total</th></tr></thead><tbody>${linhas}</tbody></table>
               <div class="total">Valor total em estoque: ${fmt(totalEstoque)}</div>`;
             imprimirHTML("Posição de Estoque", corpo);
           }}><I.Printer s={12}/> Imprimir</Btn>
+          <Btn v="g" onClick={()=>{
+            const linhas = data.produtos.map(p=>
+              `<tr><td>${p.nome}</td><td>${p.categoria||"—"}</td><td>${fmtN(p.estoque_atual)} ${p.unidade}</td><td style="min-width:90px"></td><td style="min-width:90px"></td></tr>`
+            ).join("");
+            const corpo = `<h1>Conferência de Estoque</h1><div class="sub">gerado em ${fmtDate(today())} — preencher à mão durante a contagem física</div>
+              <table><thead><tr><th>Produto</th><th>Categoria</th><th>Estoque no Sistema</th><th>Contagem Física</th><th>Diferença</th></tr></thead><tbody>${linhas}</tbody></table>`;
+            imprimirHTML("Conferência de Estoque", corpo);
+          }}><I.Clipboard s={12}/> Conferência de Estoque</Btn>
         </div>
         <ST cols={["Produto","Fornecedor","Categoria","Estoque Atual","Mínimo","Custo Unit.","Valor Total","Status","Ajuste"]}
           rows={data.produtos.map(p=>{const forn=data.fornecedores.find(f=>f.id===p.fornecedor_id);const cr=p.estoque_atual<=p.estoque_minimo;return[
