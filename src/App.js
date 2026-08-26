@@ -1886,7 +1886,7 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
      pra usar assim que surge uma vaga (ex: logo depois de cancelar um agendamento). */
   const usarListaEspera = (item) => {
     setErroSalvar("");
-    setForm({paciente_id:String(item.paciente_id||""), paciente:item.paciente||"", procedimento_id:item.procedimento_id?String(item.procedimento_id):"", servico:item.servico||"", profissional_id:"", data:diaSelecionado, hora:"09:00", duracao_minutos:60, status:"aguardando", observacoes:item.observacoes||""});
+    setForm({paciente_id:String(item.paciente_id||""), paciente:item.paciente||"", procedimento_id:item.procedimento_id?String(item.procedimento_id):"", servico:item.servico||"", profissional_id:"", data:diaSelecionado, hora:"09:00", duracao_minutos:60, status:"aguardando", observacoes:item.observacoes||"", sala_id:"", equipamento_id:""});
     update("lista_espera", item.id, {status:"atendido"});
     setVisao("dia");
     setModal(true);
@@ -1917,8 +1917,22 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
       .map(b=>({...b, prof: data.profissionais.find(p=>p.id===b.profissional_id)}));
   },[data.bloqueios_agenda,diaSelecionado,filt.profissional,data.profissionais]);
 
-  /* ── Validação: horário de trabalho + bloqueio + colisão de horário ── */
-  const validarAgendamento = (profissionalId, dataISO, hora, duracaoMin, ignorarAgendamentoId) => {
+  /* Conflito de horário genérico — mesma lógica usada pra profissional, reaproveitada
+     pra sala itinerante e equipamento (recursos compartilhados que só um agendamento
+     pode usar por vez). */
+  const conflitoDeRecurso = (campo, valorId, dataISO, inicioMin, fimMin, ignorarAgendamentoId) => {
+    if(!valorId) return null;
+    return data.agendamentos.find(a=>{
+      if(a.id===ignorarAgendamentoId) return false;
+      if(a[campo]!==valorId || a.data!==dataISO || a.status==="cancelado") return false;
+      const [ah,am]=a.hora.split(":").map(Number);
+      const aIni=ah*60+am, aFim=aIni+(Number(a.duracao_minutos)||60);
+      return inicioMin<aFim && fimMin>aIni;
+    });
+  };
+
+  /* ── Validação: horário de trabalho + bloqueio + colisão de horário (profissional, sala, equipamento) ── */
+  const validarAgendamento = (profissionalId, dataISO, hora, duracaoMin, ignorarAgendamentoId, salaId, equipamentoId) => {
     const diaSemana = new Date(dataISO+"T12:00:00").getDay();
     const horarioDia = (data.horarios_profissional||[]).find(h=>h.profissional_id===profissionalId && h.dia_semana===diaSemana);
 
@@ -1948,17 +1962,30 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
     if(conflito){
       return `Conflito de horário: já existe "${conflito.paciente}" agendado(a) às ${conflito.hora} com este profissional.`;
     }
+
+    const conflitoSala = conflitoDeRecurso("sala_id", salaId, dataISO, inicioMin, fimMin, ignorarAgendamentoId);
+    if(conflitoSala){
+      const sala = data.salas?.find(s=>s.id===salaId);
+      return `Conflito de sala: "${sala?.nome||"esta sala"}" já está reservada às ${conflitoSala.hora} para "${conflitoSala.paciente}".`;
+    }
+    const conflitoEquip = conflitoDeRecurso("equipamento_id", equipamentoId, dataISO, inicioMin, fimMin, ignorarAgendamentoId);
+    if(conflitoEquip){
+      const equip = data.equipamentos?.find(e=>e.id===equipamentoId);
+      return `Conflito de equipamento: "${equip?.nome||"este equipamento"}" já está reservado às ${conflitoEquip.hora} para "${conflitoEquip.paciente}".`;
+    }
     return null; // sem erro = válido
   };
 
   const salvar=async()=>{
     setErroSalvar(""); setSalvando(true);
     const profId = parseInt(form.profissional_id);
-    const erroValidacao = validarAgendamento(profId, form.data, form.hora, form.duracao_minutos);
+    const salaId = form.sala_id?parseInt(form.sala_id):null;
+    const equipamentoId = form.equipamento_id?parseInt(form.equipamento_id):null;
+    const erroValidacao = validarAgendamento(profId, form.data, form.hora, form.duracao_minutos, null, salaId, equipamentoId);
     if(erroValidacao){ setErroSalvar(erroValidacao); setSalvando(false); return; }
     try{
       const proc=data.procedimentos.find(p=>p.id===parseInt(form.procedimento_id));
-      await insert("agendamentos",{paciente_id:parseInt(form.paciente_id),paciente:form.paciente,profissional_id:profId,procedimento_id:parseInt(form.procedimento_id),servico:proc?.nome||form.servico,data:form.data,hora:form.hora,duracao_minutos:Number(form.duracao_minutos)||proc?.duracao_minutos||60,status:form.status,observacoes:form.observacoes,valor:proc?.preco_venda||0});
+      await insert("agendamentos",{paciente_id:parseInt(form.paciente_id),paciente:form.paciente,profissional_id:profId,procedimento_id:parseInt(form.procedimento_id),servico:proc?.nome||form.servico,data:form.data,hora:form.hora,duracao_minutos:Number(form.duracao_minutos)||proc?.duracao_minutos||60,status:form.status,observacoes:form.observacoes,valor:proc?.preco_venda||0,sala_id:salaId,equipamento_id:equipamentoId});
       setModal(false);
     }catch(e){
       setErroSalvar(e.message||"Erro ao salvar o agendamento.");
@@ -1987,7 +2014,7 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
 
   const abrirModal = (horaPreenchida) => {
     setErroSalvar("");
-    setForm({paciente_id:"",paciente:"",procedimento_id:"",servico:"",profissional_id:"",data:diaSelecionado,hora:horaPreenchida||"09:00",duracao_minutos:60,status:"aguardando",observacoes:""});
+    setForm({paciente_id:"",paciente:"",procedimento_id:"",servico:"",profissional_id:"",data:diaSelecionado,hora:horaPreenchida||"09:00",duracao_minutos:60,status:"aguardando",observacoes:"",sala_id:"",equipamento_id:""});
   };
 
   const salvarBloqueio = async () => {
@@ -2196,6 +2223,7 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
                     <div style={{marginBottom:8}}>
                       <button onClick={()=>pac&&setProntuarioAberto(pac)} disabled={!pac} style={{background:"none",border:"none",padding:0,cursor:pac?"pointer":"default",color:C.text,fontSize:13,fontWeight:600,textDecoration:pac?"underline":"none",textDecorationColor:C.border,textAlign:"left"}}>{ag.paciente}</button>
                       <div style={{color:C.muted,fontSize:12,marginTop:1}}>{ag.servico}</div>
+                      {(ag.sala_id||ag.equipamento_id)&&<div style={{color:C.purple,fontSize:10,marginTop:2}}>{[ag.sala_id&&data.salas?.find(s=>s.id===ag.sala_id)?.nome, ag.equipamento_id&&data.equipamentos?.find(e=>e.id===ag.equipamento_id)?.nome].filter(Boolean).join(" · ")}</div>}
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
                       <div style={{width:20,height:20,borderRadius:"50%",background:cor+"22",display:"flex",alignItems:"center",justifyContent:"center",color:cor,fontWeight:700,fontSize:9}}>{p?.nome?.[0]||"?"}</div>
@@ -2277,6 +2305,12 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
           <Inp label="Hora" type="time" value={form.hora} onChange={e=>setForm(f=>({...f,hora:e.target.value}))}/>
           <Inp label="Duração (min)" type="number" value={form.duracao_minutos} onChange={e=>setForm(f=>({...f,duracao_minutos:e.target.value}))}/>
         </div>
+        {(data.salas||[]).some(s=>s.itinerante)||(data.equipamentos||[]).length>0
+          ? <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {(data.salas||[]).some(s=>s.itinerante)&&<Sel label="Sala (opcional)" value={form.sala_id||""} onChange={e=>setForm(f=>({...f,sala_id:e.target.value}))} options={[{value:"",label:"Nenhuma"}, ...data.salas.filter(s=>s.itinerante).map(s=>({value:s.id,label:s.nome}))]}/>}
+              {(data.equipamentos||[]).length>0&&<Sel label="Equipamento (opcional)" value={form.equipamento_id||""} onChange={e=>setForm(f=>({...f,equipamento_id:e.target.value}))} options={[{value:"",label:"Nenhum"}, ...data.equipamentos.filter(e=>e.ativo).map(e=>({value:e.id,label:e.nome}))]}/>}
+            </div>
+          : null}
         <TA label="Observações" value={form.observacoes} onChange={e=>setForm(f=>({...f,observacoes:e.target.value}))} placeholder="Observações sobre o agendamento..."/>
         {erroSalvar&&<div style={{background:C.danger+"14",border:`1px solid ${C.danger}30`,borderRadius:8,padding:"9px 12px",marginBottom:8,color:C.danger,fontSize:12}}>{erroSalvar}</div>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
@@ -5040,6 +5074,8 @@ function Cadastros({data,insert,update,remove,user}) {
   const [modal,setModal] = useState(false);
   const [editing,setEditing] = useState(null);
   const [form,setForm] = useState({});
+  const [manutencaoModal,setManutencaoModal] = useState(null);
+  const [manutencaoObs,setManutencaoObs] = useState("");
   const fv = (k,v) => setForm(p=>({...p,[k]:v}));
 
   // Usuários
@@ -5241,7 +5277,7 @@ function Cadastros({data,insert,update,remove,user}) {
   };
 
   const salvar = async () => {
-    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",adq:"adquirentes",prof:"profissionais",cat:catAba==="contasdre"?"contas_dre":"categorias_financeiras"};
+    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",adq:"adquirentes",prof:"profissionais",equip:"equipamentos",cat:catAba==="contasdre"?"contas_dre":"categorias_financeiras"};
     const table = tableMap[aba];
     if(!table) return;
     let rec = form;
@@ -5263,7 +5299,7 @@ function Cadastros({data,insert,update,remove,user}) {
       <PH title="Cadastros" sub="Configurações e dados auxiliares"/>
 
       <div style={{display:"flex",gap:7,marginBottom:16,flexWrap:"wrap"}}>
-        {[["empresa","Empresa"],["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["adq","Adquirentes"],["cat","Categorias"],["prof","Profissionais"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
+        {[["empresa","Empresa"],["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["adq","Adquirentes"],["cat","Categorias"],["prof","Profissionais"],["equip","Equipamentos"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
           <button key={a[0]} onClick={()=>{setAba(a[0]);setModal(false);setMsgUser("");}}
             style={{padding:"7px 14px",borderRadius:8,border:`1px solid ${aba===a[0]?C.accent:C.border}`,background:aba===a[0]?C.accentSoft:"transparent",color:aba===a[0]?C.accent:C.muted,fontSize:12,fontWeight:aba===a[0]?700:400,cursor:"pointer"}}>
             {a[1]}
@@ -5568,6 +5604,66 @@ function Cadastros({data,insert,update,remove,user}) {
         </Mod>}
       </>}
 
+      {/* EQUIPAMENTOS */}
+      {aba==="equip"&&<>
+        {(()=>{
+          const proximaManutencao = eq => eq.ultima_manutencao && eq.manutencao_periodica_dias ? addDias(eq.ultima_manutencao, eq.manutencao_periodica_dias) : null;
+          const vencidos = (data.equipamentos||[]).filter(eq=>eq.ativo!==false).filter(eq=>{const p=proximaManutencao(eq); return p && p<today();});
+          return <>
+            {vencidos.length>0&&<div style={{background:C.danger+"14",border:`1px solid ${C.danger}30`,borderRadius:10,padding:"8px 12px",marginBottom:12}}>
+              <div style={{color:C.danger,fontSize:11,fontWeight:700,marginBottom:3}}>⚠ MANUTENÇÃO VENCIDA</div>
+              {vencidos.map(eq=><div key={eq.id} style={{color:C.text,fontSize:11}}>{eq.nome} — venceu em {fmtDate(proximaManutencao(eq))}</div>)}
+            </div>}
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
+              <Btn onClick={()=>abrirModal(null,{nome:"",descricao:"",manutencao_periodica_dias:90,ultima_manutencao:"",ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
+            </div>
+            <ST cols={["Equipamento","Periodicidade","Última Manutenção","Próxima","Status","Ações"]}
+              rows={(data.equipamentos||[]).map(eq=>{
+                const prox = proximaManutencao(eq);
+                const vencida = prox && prox<today();
+                return [
+                  <span style={{fontWeight:600}}>{eq.nome}</span>,
+                  <span style={{color:C.muted,fontSize:11}}>{eq.manutencao_periodica_dias?`${eq.manutencao_periodica_dias} dias`:"—"}</span>,
+                  <span style={{fontSize:11}}>{eq.ultima_manutencao?fmtDate(eq.ultima_manutencao):"Nunca"}</span>,
+                  <span style={{fontSize:11,color:vencida?C.danger:C.text,fontWeight:vencida?700:400}}>{prox?fmtDate(prox):"—"}</span>,
+                  <Badge text={eq.ativo?"Ativo":"Inativo"} color={eq.ativo?C.success:C.muted}/>,
+                  <div style={{display:"flex",gap:4}}>
+                    <Btn v="ok" onClick={()=>setManutencaoModal(eq)} style={{padding:"3px 8px",fontSize:10}}>Registrar manutenção</Btn>
+                    <Btn v="g" onClick={()=>abrirModal(eq,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
+                    <Btn v="d" onClick={()=>update("equipamentos",eq.id,{ativo:!eq.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+                  </div>
+                ];
+              })}
+              empty="Nenhum equipamento cadastrado."
+            />
+          </>;
+        })()}
+        {modal&&<Mod title={editing?"Editar Equipamento":"Novo Equipamento"} onClose={()=>{setModal(false);setEditing(null);}}>
+          <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} style={{marginBottom:10}}/>
+          <TA label="Descrição" value={form.descricao||""} onChange={e=>fv("descricao",e.target.value)}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Manutenção periódica (dias)" type="number" value={form.manutencao_periodica_dias||""} onChange={e=>fv("manutencao_periodica_dias",e.target.value)} placeholder="Ex: 90"/>
+            <Inp label="Última manutenção" type="date" value={form.ultima_manutencao||""} onChange={e=>fv("ultima_manutencao",e.target.value)}/>
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+            <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
+            <Btn onClick={salvar}><I.Check s={12}/> Salvar</Btn>
+          </div>
+        </Mod>}
+        {manutencaoModal&&<Mod title={`Registrar Manutenção — ${manutencaoModal.nome}`} onClose={()=>{setManutencaoModal(null);setManutencaoObs("");}}>
+          <p style={{color:C.muted,fontSize:12,marginBottom:10}}>Marca a manutenção como feita hoje ({fmtDate(today())}) e recalcula a próxima data a partir daqui.</p>
+          <TA label="Observações (opcional)" value={manutencaoObs} onChange={e=>setManutencaoObs(e.target.value)}/>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+            <Btn v="g" onClick={()=>{setManutencaoModal(null);setManutencaoObs("");}}>Cancelar</Btn>
+            <Btn v="ok" onClick={async()=>{
+              await insert("equipamento_manutencoes",{equipamento_id:manutencaoModal.id, data:today(), observacoes:manutencaoObs});
+              await update("equipamentos", manutencaoModal.id, {ultima_manutencao:today()});
+              setManutencaoModal(null); setManutencaoObs("");
+            }}><I.Check s={12}/> Confirmar</Btn>
+          </div>
+        </Mod>}
+      </>}
+
       {/* USUÁRIOS */}
       {aba==="usuarios"&&<div>
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:16,marginBottom:14}}>
@@ -5672,7 +5768,7 @@ function Salas({data, insert, update}) {
   const [alugarModal,setAlugarModal] = useState(null);
   const [pagModal,setPagModal] = useState(null);
   const [baixaConta,setBaixaConta] = useState("");
-  const init = {nome:"",descricao:"",valor_aluguel:0};
+  const init = {nome:"",descricao:"",valor_aluguel:0,itinerante:false};
   const [form,setForm] = useState(init);
   const [formLocacao,setFormLocacao] = useState({locatario_nome:"",locatario_cpf:"",locatario_telefone:"",contrato_inicio:today(),contrato_fim:"",observacoes:"",contrato_arquivo_nome:"",contrato_arquivo_base64:""});
   const [uploadNome,setUploadNome] = useState("");
@@ -5782,6 +5878,7 @@ function Salas({data, insert, update}) {
               <div>
                 <div style={{color:C.text,fontWeight:700,fontSize:14}}>{sala.nome}</div>
                 <div style={{color:C.muted,fontSize:11,marginTop:2}}>{sala.descricao||"—"}</div>
+                {sala.itinerante&&<Badge text="Itinerante" color={C.purple}/>}
               </div>
               <Badge text={sala.status==="alugada"?"Alugada":"Disponível"} color={sala.status==="alugada"?C.info:C.success}/>
             </div>
@@ -5834,6 +5931,13 @@ function Salas({data, insert, update}) {
         <Inp label="Nome da sala" value={form.nome} onChange={e=>setForm(f=>({...f,nome:e.target.value}))} placeholder="Ex: Sala 1 - Estética Facial"/>
         <TA label="Descrição" value={form.descricao} onChange={e=>setForm(f=>({...f,descricao:e.target.value}))} placeholder="Metragem, equipamentos disponíveis..."/>
         <Inp label="Valor do aluguel (R$/mês)" type="number" value={form.valor_aluguel} onChange={e=>setForm(f=>({...f,valor_aluguel:e.target.value}))}/>
+        <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",marginBottom:14}}>
+          <input type="checkbox" checked={!!form.itinerante} onChange={e=>setForm(f=>({...f,itinerante:e.target.checked}))} style={{marginTop:2,accentColor:C.accent,width:16,height:16}}/>
+          <div>
+            <div style={{color:C.text,fontSize:12,fontWeight:600}}>Sala Itinerante</div>
+            <div style={{color:C.muted,fontSize:11,marginTop:2}}>Sala compartilhada entre vários profissionais, reservada por horário na Agenda (diferente de aluguel fixo por mês).</div>
+          </div>
+        </label>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <Btn v="g" onClick={()=>setModal(false)}>Cancelar</Btn>
           <Btn onClick={salvar} disabled={!form.nome}><I.Check s={12}/> Salvar</Btn>
