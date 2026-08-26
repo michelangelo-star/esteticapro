@@ -5371,7 +5371,6 @@ function Comissoes({data, update, insert, user}) {
   // Fechamento de comissões (assinatura + baixa em lote por profissional/período)
   const [fechModal,setFechModal] = useState(false);
   const [fech,setFech] = useState({profissional_id:"",periodo_de:mesAtualRange().de,periodo_ate:mesAtualRange().ate});
-  const [assinandoFechamento,setAssinandoFechamento] = useState(false);
   const [salvandoFechamento,setSalvandoFechamento] = useState(false);
 
   const comissoesDoFechamento = useMemo(()=>{
@@ -5383,22 +5382,22 @@ function Comissoes({data, update, insert, user}) {
   },[data.comissoes,fech]);
   const totalFechamento = comissoesDoFechamento.reduce((s,c)=>s+(Number(c.valor_comissao)||0),0);
 
-  const confirmarFechamento = async (assinaturaBase64) => {
+  /* Fecha e já dispara a impressão — o "documento assinado" aqui é o papel impresso
+     com uma linha em branco pra assinatura física, não uma captura em tela. */
+  const confirmarFechamento = async () => {
     setSalvandoFechamento(true);
     const prof = data.profissionais.find(p=>p.id===parseInt(fech.profissional_id));
+    const itensDoFechamento = comissoesDoFechamento;
     const fechamento = await insert("comissoes_fechamentos",{
       profissional_id:parseInt(fech.profissional_id),
       periodo_de:fech.periodo_de, periodo_ate:fech.periodo_ate,
-      valor_total:totalFechamento, qtd_atendimentos:comissoesDoFechamento.length,
-      assinatura_base64:assinaturaBase64,
+      valor_total:totalFechamento, qtd_atendimentos:itensDoFechamento.length,
     });
-    for(const c of comissoesDoFechamento){
+    for(const c of itensDoFechamento){
       await update("comissoes", c.id, {status:"paga", data_pagamento:today(), fechamento_id:fechamento?.id||null});
     }
-    setSalvandoFechamento(false); setAssinandoFechamento(false); setFechModal(false);
-    if(window.confirm(`Comissões de ${prof?.nome||""} fechadas! Deseja imprimir o recibo agora?`)){
-      imprimirReciboFechamento({...fechamento, profissional_id:parseInt(fech.profissional_id)}, comissoesDoFechamento, prof);
-    }
+    setSalvandoFechamento(false); setFechModal(false);
+    imprimirReciboFechamento({...fechamento, profissional_id:parseInt(fech.profissional_id)}, itensDoFechamento, prof);
     setFech({profissional_id:"",periodo_de:mesAtualRange().de,periodo_ate:mesAtualRange().ate});
   };
 
@@ -5406,10 +5405,10 @@ function Comissoes({data, update, insert, user}) {
     const linhas = itensComissao.map(c=>`<tr><td>${fmtDate(c.data_atendimento)}</td><td>${c.paciente}</td><td>${c.servico}</td><td>${fmt(c.valor_atendimento)}</td><td>${fmtN(c.percentual)}%</td><td>${fmt(c.valor_comissao)}</td></tr>`).join("");
     const corpo = `
       <h1>Fechamento de Comissões</h1>
-      <div class="sub">VPBeauty — ${prof?.nome||""} — ${fmtDate(fechamento.periodo_de)} a ${fmtDate(fechamento.periodo_ate)}</div>
+      <div class="sub">${prof?.nome||""} — ${fmtDate(fechamento.periodo_de)} a ${fmtDate(fechamento.periodo_ate)}</div>
       <table><thead><tr><th>Data</th><th>Paciente</th><th>Serviço</th><th>Valor Atend.</th><th>%</th><th>Comissão</th></tr></thead><tbody>${linhas}</tbody></table>
       <div class="total">Total: ${fmt(fechamento.valor_total)}</div>
-      ${fechamento.assinatura_base64?`<div style="margin-top:24px"><div style="color:#777;font-size:11px;margin-bottom:4px">Assinatura do profissional:</div><img src="${fechamento.assinatura_base64}" style="height:70px"/></div>`:'<div class="assinatura">Assinatura do profissional</div>'}
+      <div class="assinatura">Assinatura do profissional</div>
     `;
     imprimirHTML(`Fechamento de Comissões — ${prof?.nome||""}`, corpo);
   };
@@ -5518,35 +5517,32 @@ function Comissoes({data, update, insert, user}) {
         </div>
       </Mod>}
 
-      {fechModal&&<Mod title="Fechar Comissões" onClose={()=>{setFechModal(false);setAssinandoFechamento(false);}}>
-        {!assinandoFechamento?<>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
-            <Sel label="Profissional" value={fech.profissional_id} onChange={e=>setFech(f=>({...f,profissional_id:e.target.value}))} options={[{value:"",label:"Selecione..."}, ...data.profissionais.map(p=>({value:p.id,label:p.nome}))]} style={{gridColumn:"1/-1"}}/>
-            <Inp label="Período de" type="date" value={fech.periodo_de} onChange={e=>setFech(f=>({...f,periodo_de:e.target.value}))}/>
-            <Inp label="Período até" type="date" value={fech.periodo_ate} onChange={e=>setFech(f=>({...f,periodo_ate:e.target.value}))}/>
+      {fechModal&&<Mod title="Fechar Comissões" onClose={()=>setFechModal(false)}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
+          <Sel label="Profissional" value={fech.profissional_id} onChange={e=>setFech(f=>({...f,profissional_id:e.target.value}))} options={[{value:"",label:"Selecione..."}, ...data.profissionais.map(p=>({value:p.id,label:p.nome}))]} style={{gridColumn:"1/-1"}}/>
+          <Inp label="Período de" type="date" value={fech.periodo_de} onChange={e=>setFech(f=>({...f,periodo_de:e.target.value}))}/>
+          <Inp label="Período até" type="date" value={fech.periodo_ate} onChange={e=>setFech(f=>({...f,periodo_ate:e.target.value}))}/>
+        </div>
+        {fech.profissional_id&&<>
+          <ST cols={["Data","Paciente","Serviço","Comissão"]}
+            rows={comissoesDoFechamento.map(c=>[fmtDate(c.data_atendimento),<span style={{fontSize:11}}>{c.paciente}</span>,<span style={{fontSize:11,color:C.muted}}>{c.servico}</span>,<span style={{fontWeight:600,color:C.warn}}>{fmt(c.valor_comissao)}</span>])}
+            empty="Nenhuma comissão pendente deste profissional neste período."
+          />
+          <div style={{display:"flex",justifyContent:"flex-end",gap:16,marginTop:10,marginBottom:4}}>
+            <span style={{color:C.muted,fontSize:12}}>Total a fechar:</span>
+            <span style={{color:C.accent,fontWeight:700,fontSize:16}}>{fmt(totalFechamento)}</span>
           </div>
-          {fech.profissional_id&&<>
-            <ST cols={["Data","Paciente","Serviço","Comissão"]}
-              rows={comissoesDoFechamento.map(c=>[fmtDate(c.data_atendimento),<span style={{fontSize:11}}>{c.paciente}</span>,<span style={{fontSize:11,color:C.muted}}>{c.servico}</span>,<span style={{fontWeight:600,color:C.warn}}>{fmt(c.valor_comissao)}</span>])}
-              empty="Nenhuma comissão pendente deste profissional neste período."
-            />
-            <div style={{display:"flex",justifyContent:"flex-end",gap:16,marginTop:10,marginBottom:4}}>
-              <span style={{color:C.muted,fontSize:12}}>Total a fechar:</span>
-              <span style={{color:C.accent,fontWeight:700,fontSize:16}}>{fmt(totalFechamento)}</span>
-            </div>
-          </>}
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
-            <Btn v="g" onClick={()=>setFechModal(false)}>Cancelar</Btn>
-            <Btn onClick={()=>setAssinandoFechamento(true)} disabled={comissoesDoFechamento.length===0}><I.Pen s={12}/> Ir para Assinatura</Btn>
-          </div>
-        </>:<>
-          <div style={{background:C.accentSoft,borderRadius:9,padding:12,marginBottom:14,textAlign:"center"}}>
-            <div style={{color:C.muted,fontSize:11}}>{data.profissionais.find(p=>p.id===parseInt(fech.profissional_id))?.nome} — {comissoesDoFechamento.length} atendimento(s)</div>
-            <div style={{color:C.accent,fontWeight:700,fontSize:20}}>{fmt(totalFechamento)}</div>
-          </div>
-          <SignaturePad onSave={confirmarFechamento} onCancel={()=>setAssinandoFechamento(false)}/>
-          {salvandoFechamento&&<div style={{textAlign:"center",color:C.muted,fontSize:11,marginTop:8}}><Spin s={12} c={C.muted}/> Fechando...</div>}
         </>}
+        <div style={{background:C.info+"10",border:`1px solid ${C.info}25`,borderRadius:8,padding:"8px 12px",marginTop:4,marginBottom:4,display:"flex",gap:8,alignItems:"center"}}>
+          <I.Printer c={C.info} s={13}/>
+          <span style={{color:C.info,fontSize:11}}>Ao fechar, sai direto uma folha impressa com os dados e uma linha em branco pra assinatura física da profissional.</span>
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
+          <Btn v="g" onClick={()=>setFechModal(false)}>Cancelar</Btn>
+          <Btn onClick={confirmarFechamento} disabled={comissoesDoFechamento.length===0||salvandoFechamento}>
+            {salvandoFechamento?<><Spin s={12} c="#FFFFFF"/>Fechando...</>:<><I.Printer s={12}/> Fechar e Imprimir</>}
+          </Btn>
+        </div>
       </Mod>}
     </div>
   );
