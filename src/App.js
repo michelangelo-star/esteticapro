@@ -1571,7 +1571,7 @@ function Dashboard({data, user}) {
 }
 
 /* ─── AGENDAMENTOS ───────────────────────────────────────────── */
-function Agendamentos({data,insert,update}) {
+function Agendamentos({data,insert,update,onRealizar}) {
   const [modal,setModal]=useState(false);
   const [bloqueioModal,setBloqueioModal]=useState(false);
   const [visao,setVisao]=useState("dia"); // "mes" | "semana" | "dia" | "lista"
@@ -1659,7 +1659,17 @@ function Agendamentos({data,insert,update}) {
 
   const confirmar=id=>update("agendamentos",id,{status:"confirmado"});
   const cancelar=id=>update("agendamentos",id,{status:"cancelado"});
-  const realizar=async ag=>{await insert("atendimentos",{paciente:ag.paciente,paciente_id:ag.paciente_id,procedimento_id:ag.procedimento_id,servico:ag.servico,profissional_id:ag.profissional_id,data:ag.data,valor:ag.valor,valor_final:ag.valor,desconto:0,pago:false,forma_pagamento:"",observacoes:""});await update("agendamentos",ag.id,{status:"realizado"});};
+  /* Cria o atendimento em rascunho (status "aberto") já com o procedimento agendado
+     como 1º item, e abre a tela de Atendimentos em modo edição pra profissional
+     poder acrescentar mais itens antes de fechar. */
+  const realizar=async ag=>{
+    const novoAt = await insert("atendimentos",{paciente:ag.paciente,paciente_id:ag.paciente_id,procedimento_id:ag.procedimento_id,servico:ag.servico,profissional_id:ag.profissional_id,data:ag.data,valor:ag.valor,valor_final:ag.valor,desconto:0,pago:false,status:"aberto",forma_pagamento:"",observacoes:""});
+    if(ag.procedimento_id && novoAt?.id){
+      await insert("atendimento_itens",{atendimento_id:novoAt.id,tipo:"procedimento",procedimento_id:ag.procedimento_id,descricao:ag.servico,quantidade:1,valor_unitario:ag.valor,valor_total:ag.valor});
+    }
+    await update("agendamentos",ag.id,{status:"realizado"});
+    if(novoAt?.id && onRealizar) onRealizar(novoAt.id);
+  };
   const sc={confirmado:C.success,aguardando:C.warn,cancelado:C.danger,realizado:C.purple};
 
   const abrirModal = (horaPreenchida) => {
@@ -1958,16 +1968,39 @@ function Agendamentos({data,insert,update}) {
 
 
 /* ─── ATENDIMENTOS ───────────────────────────────────────────── */
-function Atendimentos({data,insert,update}) {
-  const [modal,setModal] = useState(false);
+function Atendimentos({data,insert,update,user,abrirId,onAbriu}) {
+  const isSupervisor = !user || user.role !== "profissional";
+  const [modal,setModal] = useState(false); // false | "novo" | {id}
+  const [editingId,setEditingId] = useState(null); // id do atendimento em edição (já existe no banco)
   const [filt,setFilt] = useState({profissional:"",de:"",ate:"",pago:""});
   const ff = (k,v) => setFilt(p=>({...p,[k]:v}));
 
   // Cabeçalho do atendimento
-  const [cab,setCab] = useState({paciente_id:"",paciente:"",profissional_id:"",data:today(),desconto:"0",pago:false,forma_pagamento_id:"",conta_id:"",observacoes:""});
+  const [cab,setCab] = useState({paciente_id:"",paciente:"",profissional_id:"",data:today(),desconto:"0",forma_pagamento_id:"",conta_id:"",observacoes:""});
   // Itens do atendimento (produtos e procedimentos)
   const [itens,setItens] = useState([]);
   const fc = (k,v) => setCab(p=>({...p,[k]:v}));
+
+  const atendimentoEmEdicao = editingId ? data.atendimentos.find(a=>a.id===editingId) : null;
+  const somenteLeitura = !!atendimentoEmEdicao && atendimentoEmEdicao.status!=="aberto";
+
+  /* Abre um atendimento existente pra edição, carregando cabeçalho e itens já salvos */
+  const abrirEdicao = (at) => {
+    setCab({paciente_id:at.paciente_id||"",paciente:at.paciente||"",profissional_id:at.profissional_id||"",data:at.data||today(),desconto:String(at.desconto||0),forma_pagamento_id:at.forma_pagamento_id||"",conta_id:at.conta_id||"",observacoes:at.observacoes||""});
+    const itensExistentes = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id).map(i=>({tipo:i.tipo,ref_id:i.tipo==="procedimento"?i.procedimento_id:i.produto_id,descricao:i.descricao,quantidade:i.quantidade,valor_unitario:i.valor_unitario,valor_total:i.valor_total}));
+    setItens(itensExistentes.length>0?itensExistentes:[{tipo:"procedimento",ref_id:"",descricao:"",quantidade:1,valor_unitario:0,valor_total:0}]);
+    setEditingId(at.id);
+    setModal({id:at.id});
+  };
+
+  /* Abre automaticamente quando a Agenda manda um id (botão "Realizar") */
+  useEffect(()=>{
+    if(abrirId){
+      const at = data.atendimentos.find(a=>a.id===abrirId);
+      if(at) abrirEdicao(at);
+      onAbriu?.();
+    }
+  },[abrirId]); // eslint-disable-line
 
   const addItem = () => setItens(l=>[...l,{tipo:"procedimento",ref_id:"",descricao:"",quantidade:1,valor_unitario:0,valor_total:0}]);
 
@@ -2000,20 +2033,47 @@ function Atendimentos({data,insert,update}) {
     if(filt.profissional) l=l.filter(a=>String(a.profissional_id)===filt.profissional);
     if(filt.de) l=l.filter(a=>a.data>=filt.de);
     if(filt.ate) l=l.filter(a=>a.data<=filt.ate);
-    if(filt.pago==="sim") l=l.filter(a=>a.pago);
-    if(filt.pago==="nao") l=l.filter(a=>!a.pago);
+    if(filt.status) l=l.filter(a=>(a.status||"fechado")===filt.status);
     return l.sort((a,b)=>b.data.localeCompare(a.data));
   },[data.atendimentos,filt]);
 
   const totalRec = lista.reduce((s,a)=>s+(Number(a.valor_final||a.valor)||0),0);
   const totalPago = lista.filter(a=>a.pago).reduce((s,a)=>s+(Number(a.valor_final||a.valor)||0),0);
 
-  const toggle = id => {
-    const at=data.atendimentos.find(a=>a.id===id);
-    const novoPago = !at.pago;
-    update("atendimentos",id,{pago:novoPago});
-    /* Gera comissão pendente quando o atendimento passa a "pago" (só profissionais por %) */
-    if(novoPago) gerarComissaoSeAplicavel(at);
+  /* Recebimento — só supervisor. Roteia o valor conforme a forma de pagamento:
+     dinheiro cai direto no Caixa Mestre; as demais formas usam a conta escolhida
+     no fechamento do atendimento. */
+  const receber = async (at) => {
+    const contaCaixaMestre = data.contas_bancarias.find(c=>c.tipo==="caixa_master");
+    const fp = data.formas_pagamento.find(f=>f.id===at.forma_pagamento_id);
+    const ehDinheiro = (fp?.tipo||"").toLowerCase()==="dinheiro";
+    const contaDestino = ehDinheiro ? contaCaixaMestre : data.contas_bancarias.find(c=>c.id===at.conta_id);
+    if(!contaDestino){ alert(ehDinheiro?"Cadastre uma conta do tipo Caixa Mestre em Contas e Caixa.":"Este atendimento não tem conta de destino definida."); return; }
+
+    const valor = Number(at.valor_final||at.valor)||0;
+    const catAtendimentos = (data.categorias_financeiras||[]).find(c=>c.tipo==="receita"&&c.nome==="Atendimentos");
+    const atItens = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
+    const descNomes = atItens.length>0 ? atItens.map(i=>i.descricao).join(", ") : at.servico;
+
+    /* A conta a receber nasce agora, já quitada — é o registro do recebimento em si */
+    await insert("contas_receber",{
+      paciente:at.paciente, paciente_id:at.paciente_id, atendimento_id:at.id,
+      descricao:`Atendimento — ${descNomes}`, valor,
+      vencimento:today(), categoria_id:catAtendimentos?.id||null,
+      data_lancamento:today(), data_competencia:at.data,
+      status:"quitado", forma_pagamento:fp?.nome||"", forma_pagamento_id:at.forma_pagamento_id||null,
+      conta_id:contaDestino.id, data_baixa:today(),
+    });
+    await update("atendimentos", at.id, {status:"recebido", pago:true});
+    await insert("movimentacoes",{conta_id:contaDestino.id, tipo:"entrada", origem:"atendimento", origem_id:at.id, descricao:`Recebimento — ${at.paciente}`, valor, data:today()});
+    await gerarComissaoSeAplicavel(at);
+  };
+
+  const estornar = async (at) => {
+    await update("atendimentos", at.id, {status:"fechado", pago:false});
+    /* Desfaz o recebimento — cancela a conta a receber criada no ato de receber */
+    const cr = (data.contas_receber||[]).find(c=>c.atendimento_id===at.id && c.status==="quitado");
+    if(cr) await update("contas_receber", cr.id, {status:"cancelado"});
   };
 
   /* Gera um registro de comissão pendente para o profissional, se ele for remunerado por percentual */
@@ -2034,45 +2094,66 @@ function Atendimentos({data,insert,update}) {
   };
 
   const abrirModal = () => {
-    setCab({paciente_id:"",paciente:"",profissional_id:"",data:today(),desconto:"0",pago:false,forma_pagamento_id:"",conta_id:"",observacoes:""});
+    setCab({paciente_id:"",paciente:"",profissional_id:"",data:today(),desconto:"0",forma_pagamento_id:"",conta_id:"",observacoes:""});
     setItens([{tipo:"procedimento",ref_id:"",descricao:"",quantidade:1,valor_unitario:0,valor_total:0}]);
-    setModal(true);
+    setEditingId(null);
+    setModal("novo");
   };
 
-  const salvar = async () => {
-    if(!cab.paciente_id||!cab.profissional_id||itens.length===0) return;
+  /* Salva cabeçalho + itens enquanto o atendimento está "aberto" (rascunho editável).
+     Não baixa estoque nem mexe em financeiro — isso só acontece em fecharAtendimento. */
+  const salvarRascunho = async () => {
+    if(!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)) return null;
     const fp = data.formas_pagamento.find(f=>f.id===parseInt(cab.forma_pagamento_id));
     const descNomes = itens.map(i=>i.descricao).filter(Boolean).join(", ");
-
-    // 1. Salvar cabeçalho do atendimento
-    const novoAt = await insert("atendimentos",{
+    const camposCab = {
       paciente_id:parseInt(cab.paciente_id), paciente:cab.paciente,
       profissional_id:parseInt(cab.profissional_id),
       servico:descNomes, data:cab.data,
       valor:totalItens, desconto:desconto, valor_final:valorFinal,
-      pago:cab.pago,
       forma_pagamento_id:cab.forma_pagamento_id?parseInt(cab.forma_pagamento_id):null,
       forma_pagamento:fp?.nome||"",
       conta_id:cab.conta_id?parseInt(cab.conta_id):null,
       observacoes:cab.observacoes,
-    });
-    const atId = novoAt?.id || Date.now();
+    };
+    let atId = editingId;
+    if(!atId){
+      const novoAt = await insert("atendimentos",{...camposCab, pago:false, status:"aberto"});
+      atId = novoAt?.id;
+      setEditingId(atId);
+      setModal({id:atId});
+    } else {
+      await update("atendimentos", atId, camposCab);
+    }
+    if(atId){
+      // Substitui os itens (apaga e reinsere) — evita duplicar a cada salvamento intermediário
+      await fetch(`${SUPABASE_URL}/rest/v1/atendimento_itens?atendimento_id=eq.${atId}`,{method:"DELETE",headers:getHeaders()});
+      for(const item of itens){
+        if(!item.ref_id) continue;
+        await insert("atendimento_itens",{
+          atendimento_id:atId, tipo:item.tipo,
+          procedimento_id:item.tipo==="procedimento"?parseInt(item.ref_id):null,
+          produto_id:item.tipo==="produto"?parseInt(item.ref_id):null,
+          descricao:item.descricao, quantidade:Number(item.quantidade),
+          valor_unitario:Number(item.valor_unitario), valor_total:Number(item.valor_total),
+        });
+      }
+    }
+    return atId;
+  };
 
-    // 2. Salvar itens e baixar estoque
-    for(const item of itens) {
-      if(!item.ref_id) continue;
-      await insert("atendimento_itens",{
-        atendimento_id:atId, tipo:item.tipo,
-        procedimento_id:item.tipo==="procedimento"?parseInt(item.ref_id):null,
-        produto_id:item.tipo==="produto"?parseInt(item.ref_id):null,
-        descricao:item.descricao, quantidade:Number(item.quantidade),
-        valor_unitario:Number(item.valor_unitario), valor_total:Number(item.valor_total),
-      });
+  /* Fecha o atendimento: baixa estoque (uma única vez), cria a conta a receber
+     com a forma de pagamento negociada, e trava a edição. A partir daqui, só o
+     Caixa (supervisor) mexe no atendimento, pela ação "Receber". */
+  const fecharAtendimento = async () => {
+    const atId = await salvarRascunho();
+    if(!atId) return;
+    const itensAtuais = itens.filter(i=>i.ref_id);
 
-      if(item.tipo==="procedimento") {
-        // Baixa insumos vinculados ao procedimento
+    for(const item of itensAtuais){
+      if(item.tipo==="procedimento"){
         const insumos = (data.procedimento_insumos||[]).filter(pi=>pi.procedimento_id===parseInt(item.ref_id));
-        for(const ins of insumos) {
+        for(const ins of insumos){
           const prod = data.produtos.find(p=>p.id===ins.produto_id);
           if(!prod) continue;
           const qtdBaixa = (Number(ins.quantidade)||0)*(Number(item.quantidade)||1);
@@ -2087,11 +2168,9 @@ function Atendimentos({data,insert,update}) {
           });
         }
       }
-
-      if(item.tipo==="produto") {
-        // Baixa direta do produto vendido
+      if(item.tipo==="produto"){
         const prod = data.produtos.find(p=>p.id===parseInt(item.ref_id));
-        if(prod) {
+        if(prod){
           const qtdBaixa = Number(item.quantidade)||1;
           const novoEst = Math.max(0,(Number(prod.estoque_atual)||0)-qtdBaixa);
           await update("produtos",prod.id,{estoque_atual:novoEst});
@@ -2106,38 +2185,10 @@ function Atendimentos({data,insert,update}) {
       }
     }
 
-    // 3. Conta a receber (sempre cria, mesmo se pago — marca status)
-    const catAtendimentos = (data.categorias_financeiras||[]).find(c=>c.tipo==="receita"&&c.nome==="Atendimentos");
-    await insert("contas_receber",{
-      paciente:cab.paciente, paciente_id:parseInt(cab.paciente_id),
-      atendimento_id:atId,
-      descricao:`Atendimento — ${descNomes}`,
-      valor:valorFinal, vencimento:cab.data,
-      categoria_id:catAtendimentos?.id||null,
-      data_lancamento:today(), data_competencia:cab.data,
-      status:cab.pago?"quitado":"aberto",
-      forma_pagamento:fp?.nome||"",
-      forma_pagamento_id:cab.forma_pagamento_id?parseInt(cab.forma_pagamento_id):null,
-      conta_id:cab.conta_id?parseInt(cab.conta_id):null,
-      data_baixa:cab.pago?cab.data:null,
-    });
-
-    // 4. Movimentação financeira se pago
-    if(cab.pago && cab.conta_id) {
-      await insert("movimentacoes",{
-        conta_id:parseInt(cab.conta_id), tipo:"entrada",
-        origem:"atendimento", origem_id:atId,
-        descricao:`Recebimento — ${cab.paciente}`,
-        valor:valorFinal, data:cab.data,
-      });
-    }
-
-    // 5. Gera comissão pendente se já nasce pago
-    if(cab.pago) {
-      await gerarComissaoSeAplicavel({id:atId, profissional_id:parseInt(cab.profissional_id), paciente:cab.paciente, servico:descNomes, valor_final:valorFinal, data:cab.data});
-    }
-
-    setModal(false);
+    /* A conta a receber só nasce quando o caixa efetivamente recebe (função receber,
+       abaixo) — fechar o atendimento só trava a edição e baixa o estoque. */
+    await update("atendimentos", atId, {status:"fechado"});
+    setModal(false); setEditingId(null);
   };
 
   return (
@@ -2157,13 +2208,16 @@ function Atendimentos({data,insert,update}) {
         {key:"de",type:"date",label:"De"},
         {key:"ate",type:"date",label:"Até"},
         {key:"profissional",type:"select",label:"Profissional",options:data.profissionais.map(p=>({value:String(p.id),label:p.nome}))},
-        {key:"pago",type:"select",label:"Situação",options:[{value:"sim",label:"Pago"},{value:"nao",label:"Pendente"}]},
+        {key:"status",type:"select",label:"Situação",options:[{value:"aberto",label:"Em Atendimento"},{value:"fechado",label:"Fechado (aguarda caixa)"},{value:"recebido",label:"Recebido"}]},
       ]} values={filt} onChange={ff}/>
 
       <ST cols={["Paciente","Serviços","Profissional","Data","Valor","Forma Pgto","Situação","Ação"]}
         rows={lista.map(at=>{
           const p=data.profissionais.find(p=>p.id===at.profissional_id);
           const atItens=(data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
+          const status = at.status||"fechado";
+          const statusLabel = {aberto:"Em Atendimento",fechado:"Aguarda Caixa",recebido:"Recebido"}[status]||status;
+          const statusCor = {aberto:C.info,fechado:C.warn,recebido:C.success}[status]||C.muted;
           return [
             <span style={{fontWeight:600}}>{at.paciente}</span>,
             <span style={{fontSize:11,color:C.muted}}>{atItens.length>0?atItens.map(i=>i.descricao).join(", "):at.servico}</span>,
@@ -2171,15 +2225,18 @@ function Atendimentos({data,insert,update}) {
             fmtDate(at.data),
             <span style={{color:C.accent,fontWeight:700}}>{fmt(at.valor_final||at.valor)}</span>,
             <span style={{color:C.muted,fontSize:11}}>{at.forma_pagamento||"—"}</span>,
-            <Badge text={at.pago?"Pago":"Pendente"} color={at.pago?C.success:C.warn}/>,
-            <Btn v={at.pago?"g":"ok"} onClick={()=>toggle(at.id)} style={{padding:"3px 9px",fontSize:10}}>
-              {at.pago?"Estornar":"Receber"}
-            </Btn>
+            <Badge text={statusLabel} color={statusCor}/>,
+            <div style={{display:"flex",gap:4}}>
+              {status==="aberto"&&<Btn v="i" onClick={()=>abrirEdicao(at)} style={{padding:"3px 9px",fontSize:10}}><I.Edit s={11}/> Editar</Btn>}
+              {status==="fechado"&&isSupervisor&&<Btn v="ok" onClick={()=>receber(at)} style={{padding:"3px 9px",fontSize:10}}>Receber</Btn>}
+              {status==="recebido"&&isSupervisor&&<Btn v="g" onClick={()=>estornar(at)} style={{padding:"3px 9px",fontSize:10}}>Estornar</Btn>}
+              {status!=="aberto"&&<Btn v="g" onClick={()=>abrirEdicao(at)} style={{padding:"3px 7px"}}><I.Eye s={11}/></Btn>}
+            </div>
           ];
         })}
       />
 
-      {modal&&<Mod title="Lançar Atendimento" onClose={()=>setModal(false)} full>
+      {modal&&<Mod title={somenteLeitura?`Atendimento — ${({fechado:"Aguardando Caixa",recebido:"Recebido"})[atendimentoEmEdicao?.status]||"Fechado"}`:"Atendimento"} onClose={()=>{setModal(false);setEditingId(null);}} full>
         {/* Cabeçalho */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
           <PacienteBusca pacientes={data.pacientes} value={cab.paciente_id} insert={insert}
@@ -2190,52 +2247,54 @@ function Atendimentos({data,insert,update}) {
           <Inp label="Data do Atendimento" type="date" value={cab.data} onChange={e=>fc("data",e.target.value)}/>
         </div>
 
+        {somenteLeitura&&<div style={{background:C.warn+"12",border:`1px solid ${C.warn}30`,borderRadius:8,padding:"9px 12px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+          <I.Lock c={C.warn} s={13}/><span style={{color:C.warn,fontSize:11}}>Atendimento fechado — não pode mais ser editado pela profissional. {isSupervisor?"Use \"Receber\" na lista pra dar baixa.":"Aguardando o caixa dar baixa no pagamento."}</span>
+        </div>}
+
         {/* Itens */}
         <div style={{background:C.surface,borderRadius:10,padding:13,marginBottom:14,border:`1px solid ${C.border}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <span style={{color:C.text,fontSize:12,fontWeight:700}}>Produtos e Procedimentos</span>
-            <Btn v="g" onClick={addItem} style={{fontSize:11,padding:"4px 10px"}}><I.Plus s={11}/> Adicionar item</Btn>
+            {!somenteLeitura&&<Btn v="g" onClick={addItem} style={{fontSize:11,padding:"4px 10px"}}><I.Plus s={11}/> Adicionar item</Btn>}
           </div>
 
           {itens.length===0&&<p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>Nenhum item adicionado. Clique em "Adicionar item".</p>}
 
+          {itens.length>0&&<div style={{display:"grid",gridTemplateColumns:"130px 1fr 70px 110px 110px 36px",gap:8,marginBottom:6}}>
+            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase"}}>Tipo</label>
+            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase"}}>Produto / Procedimento</label>
+            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",textAlign:"center"}}>Qtd.</label>
+            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase"}}>Valor Unit. R$</label>
+            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",textAlign:"right"}}>Subtotal</label>
+            <span/>
+          </div>}
+
           {itens.map((item,idx)=>(
-            <div key={idx} style={{display:"grid",gridTemplateColumns:"120px 1fr 80px 110px 110px 36px",gap:8,marginBottom:8,alignItems:"end"}}>
-              <div>
-                {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Tipo</label>}
-                <select value={item.tipo} onChange={e=>updItem(idx,"tipo",e.target.value)}
-                  style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}>
-                  <option value="procedimento">Procedimento</option>
-                  <option value="produto">Produto</option>
-                </select>
+            <div key={idx} style={{display:"grid",gridTemplateColumns:"130px 1fr 70px 110px 110px 36px",gap:8,marginBottom:8,alignItems:"center"}}>
+              <select value={item.tipo} disabled={somenteLeitura} onChange={e=>updItem(idx,"tipo",e.target.value)}
+                style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}>
+                <option value="procedimento">Procedimento</option>
+                <option value="produto">Produto</option>
+              </select>
+              <select value={item.ref_id} disabled={somenteLeitura} onChange={e=>updItem(idx,"ref_id",e.target.value)}
+                style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}>
+                <option value="">Selecione...</option>
+                {item.tipo==="procedimento"
+                  ? data.procedimentos.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco_venda)}</option>)
+                  : data.produtos.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco_venda||p.custo_unitario)}</option>)
+                }
+              </select>
+              <input type="number" disabled={somenteLeitura} value={item.quantidade} onChange={e=>updItem(idx,"quantidade",e.target.value)} style={{width:"100%",textAlign:"center",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 6px",color:C.text,fontSize:12}}/>
+              <input type="number" disabled={somenteLeitura} value={item.valor_unitario} onChange={e=>updItem(idx,"valor_unitario",e.target.value)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}/>
+              <div style={{background:C.accentSoft,border:`1px solid ${C.accent}30`,borderRadius:8,padding:"9px 10px",color:C.accent,fontWeight:700,fontSize:13,textAlign:"right"}}>
+                {fmt(item.valor_total)}
               </div>
-              <div>
-                {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>
-                  {item.tipo==="procedimento"?"Procedimento":"Produto"}
-                </label>}
-                <select value={item.ref_id} onChange={e=>updItem(idx,"ref_id",e.target.value)}
-                  style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}>
-                  <option value="">Selecione...</option>
-                  {item.tipo==="procedimento"
-                    ? data.procedimentos.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco_venda)}</option>)
-                    : data.produtos.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco_venda||p.custo_unitario)}</option>)
-                  }
-                </select>
-              </div>
-              <Inp label={idx===0?"Qtd.":""} type="number" value={item.quantidade} onChange={e=>updItem(idx,"quantidade",e.target.value)} style={{textAlign:"center"}}/>
-              <Inp label={idx===0?"Valor Unit. R$":""} type="number" value={item.valor_unitario} onChange={e=>updItem(idx,"valor_unitario",e.target.value)}/>
-              <div>
-                {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Subtotal</label>}
-                <div style={{background:C.accentSoft,border:`1px solid ${C.accent}30`,borderRadius:8,padding:"9px 10px",color:C.accent,fontWeight:700,fontSize:13,textAlign:"right"}}>
-                  {fmt(item.valor_total)}
-                </div>
-              </div>
-              <div style={{paddingBottom:0}}>
-                {idx===0&&<div style={{height:22,marginBottom:4}}/>}
-                <button onClick={()=>rmItem(idx)} style={{width:"100%",height:38,background:C.danger+"18",border:`1px solid ${C.danger}30`,borderRadius:8,color:C.danger,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  <I.X c={C.danger} s={13}/>
-                </button>
-              </div>
+              {!somenteLeitura
+                ? <button onClick={()=>rmItem(idx)} style={{width:"100%",height:38,background:C.danger+"18",border:`1px solid ${C.danger}30`,borderRadius:8,color:C.danger,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <I.X c={C.danger} s={13}/>
+                  </button>
+                : <span/>
+              }
             </div>
           ))}
 
@@ -2247,41 +2306,42 @@ function Atendimentos({data,insert,update}) {
 
         {/* Pagamento */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:12}}>
-          <Inp label="Desconto (R$)" type="number" value={cab.desconto} onChange={e=>fc("desconto",e.target.value)}/>
+          <Inp label="Desconto (R$)" type="number" value={cab.desconto} onChange={e=>fc("desconto",e.target.value)} disabled={somenteLeitura}/>
           <div>
             <label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Valor Final</label>
             <div style={{background:C.accentSoft,border:`1px solid ${C.accent}`,borderRadius:8,padding:"9px 12px",color:C.accent,fontWeight:700,fontSize:15,textAlign:"center"}}>
               {fmt(valorFinal)}
             </div>
           </div>
-          <Sel label="Forma de Pagamento" value={cab.forma_pagamento_id}
+          <Sel label="Forma de Pagamento" value={cab.forma_pagamento_id} disabled={somenteLeitura}
             onChange={e=>fc("forma_pagamento_id",e.target.value)}
             options={[{value:"",label:"Selecione..."}, ...data.formas_pagamento.map(f=>({value:f.id,label:f.nome}))]}/>
-          <Sel label="Conta de Destino" value={cab.conta_id}
+          <Sel label="Conta de Destino" value={cab.conta_id} disabled={somenteLeitura}
             onChange={e=>fc("conta_id",e.target.value)}
             options={[{value:"",label:"Selecione..."}, ...data.contas_bancarias.map(c=>({value:c.id,label:`${c.nome} (${c.tipo})`}))]}/>
         </div>
 
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-          <input type="checkbox" checked={cab.pago} onChange={e=>fc("pago",e.target.checked)} id="pgAt" style={{accentColor:C.accent,width:16,height:16}}/>
-          <label htmlFor="pgAt" style={{color:C.text,fontSize:13,cursor:"pointer"}}>Já recebeu o pagamento</label>
-        </div>
+        <TA label="Observações" value={cab.observacoes} onChange={e=>fc("observacoes",e.target.value)} placeholder="Observações sobre o atendimento..." disabled={somenteLeitura}/>
 
-        <TA label="Observações" value={cab.observacoes} onChange={e=>fc("observacoes",e.target.value)} placeholder="Observações sobre o atendimento..."/>
-
-        <div style={{background:C.info+"10",border:`1px solid ${C.info}25`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+        {!somenteLeitura&&<div style={{background:C.info+"10",border:`1px solid ${C.info}25`,borderRadius:8,padding:"8px 12px",marginTop:4,marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
           <I.Warn c={C.info} s={13}/>
           <span style={{color:C.info,fontSize:11}}>
-            Ao salvar: <strong>estoque</strong> dos insumos será baixado automaticamente · <strong>Conta a receber</strong> será criada · Se marcado como pago, <strong>movimentação financeira</strong> será registrada.
+            "Salvar Rascunho" só guarda o andamento (dá pra continuar editando). Ao <strong>Fechar Atendimento</strong>: o <strong>estoque</strong> é baixado e some a possibilidade de editar — o caixa que confirma o recebimento daqui pra frente, e é aí que a <strong>conta a receber</strong> é criada.
           </span>
-        </div>
+        </div>}
 
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <Btn v="g" onClick={()=>setModal(false)}>Cancelar</Btn>
-          <Btn onClick={salvar} disabled={!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)}>
-            <I.Check s={12}/> Salvar Atendimento
+        {!somenteLeitura&&<div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn v="g" onClick={()=>{setModal(false);setEditingId(null);}}>Cancelar</Btn>
+          <Btn v="g" onClick={salvarRascunho} disabled={!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)}>
+            Salvar Rascunho
           </Btn>
-        </div>
+          <Btn onClick={fecharAtendimento} disabled={!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)||!cab.forma_pagamento_id}>
+            <I.Lock s={12}/> Fechar Atendimento
+          </Btn>
+        </div>}
+        {somenteLeitura&&<div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn v="g" onClick={()=>{setModal(false);setEditingId(null);}}>Fechar janela</Btn>
+        </div>}
       </Mod>}
     </div>
   );
@@ -5570,6 +5630,7 @@ function BannerRenovacao({user}) {
 function Sistema({user, onLogout}) {
   const [pag, setPag] = useState("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [atendimentoParaAbrir, setAtendimentoParaAbrir] = useState(null);
   const { data, loading, update, insert, remove } = useData(user.id);
   const isSupervisor = user.role !== "profissional";
 
@@ -5643,8 +5704,8 @@ function Sistema({user, onLogout}) {
   const render = () => {
     switch(pag) {
       case "dashboard":    return <Dashboard data={dataFiltrada} user={user}/>;
-      case "agendamentos": return <Agendamentos {...p}/>;
-      case "atendimentos": return <Atendimentos {...p}/>;
+      case "agendamentos": return <Agendamentos {...p} onRealizar={(id)=>{setAtendimentoParaAbrir(id);setPag("atendimentos");}}/>;
+      case "atendimentos": return <Atendimentos {...p} user={user} abrirId={atendimentoParaAbrir} onAbriu={()=>setAtendimentoParaAbrir(null)}/>;
       case "pacientes":    return <Pacientes {...p} dadosCompletos={data} user={user}/>;
       case "comissoes":    return <Comissoes data={dataFiltrada} update={update} user={user}/>;
       case "fornecedores": return <Fornecedores {...p}/>;
