@@ -308,6 +308,7 @@ const mkDemo = () => ({
   comissoes_fechamentos:[],
   empresa:{id:1,tipo_pessoa:"juridica",nome:"VPBeauty Estética Ltda",nome_fantasia:"VPBeauty",cpf_cnpj:"12.345.678/0001-90",cep:"01310-100",endereco:"Av. Paulista, 1000",cidade:"São Paulo",estado:"SP",telefone:"(11) 3000-0000",segmento_id:1,logo_base64:"",percentual_simples:6,taxa_cartao_padrao:3},
   segmentos_empresa:[{id:1,nome:"Estética e Beleza",ativo:true},{id:2,nome:"Odontologia",ativo:true}],
+  logs_financeiros:[],
   salas:[
     {id:1,nome:"Sala 1 - Estética Facial",descricao:"18m², maca elétrica, espelho iluminado",valor_aluguel:1500,status:"alugada",locatario_nome:"Juliana Freitas",locatario_cpf:"123.456.789-00",locatario_telefone:"(11)98888-4444",contrato_inicio:"2025-01-10",contrato_fim:"2025-12-31",contrato_arquivo_nome:"",contrato_arquivo_base64:""},
     {id:2,nome:"Sala 2 - Estética Corporal",descricao:"22m², maca de massagem, ducha",valor_aluguel:1800,status:"disponivel"},
@@ -952,7 +953,7 @@ function useData(clinicaId) {
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
         adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
-        empresa, segmentos_empresa,
+        empresa, segmentos_empresa, logs_financeiros,
       ] = await Promise.all([
         sb.get("profissionais",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("fornecedores",        `clinica_id=eq.${cid}&ativo=eq.true`),
@@ -988,6 +989,7 @@ function useData(clinicaId) {
         sb.get("comissoes_fechamentos",`clinica_id=eq.${cid}&order=data_fechamento.desc`),
         sb.get("empresa",             `clinica_id=eq.${cid}`),
         sb.get("segmentos_empresa",   `clinica_id=eq.${cid}&order=nome.asc`),
+        sb.get("logs_financeiros",    `clinica_id=eq.${cid}&order=created_at.desc&limit=300`),
       ]);
 
       setData({
@@ -1000,7 +1002,7 @@ function useData(clinicaId) {
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
         adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
-        empresa: empresa?.[0]||null, segmentos_empresa,
+        empresa: empresa?.[0]||null, segmentos_empresa, logs_financeiros,
       });
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
@@ -3596,10 +3598,12 @@ function FluxoCaixaChart({dados}) {
 
 /* ─── FINANCEIRO ─────────────────────────────────────────────── */
 function Financeiro({data,insert,update,user}) {
+  const isSupervisor = !user || user.role !== "profissional";
   const [aba,setAba]=useState("receber");
   const [subAbaReceber,setSubAbaReceber]=useState("aberto");
   const [subAbaPagar,setSubAbaPagar]=useState("aberto");
   const [modal,setModal]=useState(null);
+  const [editingLancamento,setEditingLancamento]=useState(null);
   const [baixaModal,setBaixaModal]=useState(null);
   const [baixaConta,setBaixaConta]=useState("");
   const [filtR,setFiltR]=useState({paciente:"",de:"",ate:"",status:""});
@@ -3668,21 +3672,46 @@ function Financeiro({data,insert,update,user}) {
   const totalPagar=cp_abertas.reduce((s,c)=>s+(Number(c.valor)||0),0);
   const totalPago=cp_pagas.reduce((s,c)=>s+(Number(c.valor)||0),0);
 
+  /* Log de auditoria — quem mexeu em quê, no financeiro. Grava antes/depois pra dar pra
+     entender a mudança sem precisar de outra tela; a leitura fica na aba "Auditoria". */
+  const registrarLog = (tabela, registro_id, acao, dados_antes, dados_depois) => {
+    insert("logs_financeiros",{usuario_nome:user?.nome||"", usuario_email:user?.email||"", tabela, registro_id, acao, dados_antes:dados_antes||null, dados_depois:dados_depois||null});
+  };
+
   const handleBaixa=async(item,tipo)=>{
     if(!baixaConta){alert("Selecione a conta.");return;}
     const tabela=tipo==="receber"?"contas_receber":"contas_pagar";
-    await update(tabela,item.id,{status:"quitado",conta_id:parseInt(baixaConta),data_baixa:today()});
+    const depois={status:"quitado",conta_id:parseInt(baixaConta),data_baixa:today()};
+    await update(tabela,item.id,depois);
     await insert("movimentacoes",{conta_id:parseInt(baixaConta),tipo:tipo==="receber"?"entrada":"saida",origem:tipo==="receber"?"contas_receber":"contas_pagar",origem_id:item.id,descricao:tipo==="receber"?`Recebimento — ${item.paciente||item.descricao}`:`Pagamento — ${item.descricao}`,valor:Number(item.valor)||0,data:today()});
+    registrarLog(tabela, item.id, "baixado", {status:item.status}, depois);
     setBaixaModal(null);setBaixaConta("");
   };
   const abrirModalLancamento = (tipo) => {
     setForm({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",fornecedor_id:"",paciente:"",paciente_id:"",recorrente:false,parcelas:1});
+    setEditingLancamento(null);
+    setModal(tipo);
+  };
+
+  /* Edição — só supervisor (botão condicionado a isSupervisor na renderização das linhas) */
+  const abrirEdicaoLancamento = (item, tipo) => {
+    setForm({
+      descricao:item.descricao||"", valor:item.valor||0,
+      vencimento:item.vencimento||today(), data_competencia:item.data_competencia||item.vencimento||today(),
+      data_lancamento:item.data_lancamento||today(), categoria_id:item.categoria_id?String(item.categoria_id):"",
+      fornecedor:item.fornecedor||"", fornecedor_id:item.fornecedor_id?String(item.fornecedor_id):"",
+      paciente:item.paciente||"", paciente_id:item.paciente_id?String(item.paciente_id):"",
+      recorrente:!!item.recorrente, parcelas:1,
+    });
+    setEditingLancamento(item);
     setModal(tipo);
   };
 
   const cancelar=(id,tipo)=>{
     const tabela=tipo==="receber"?"contas_receber":"contas_pagar";
+    const item=(tipo==="receber"?data.contas_receber:data.contas_pagar).find(c=>c.id===id);
     update(tabela,id,{status:"cancelado"});
+    registrarLog(tabela, id, "cancelado", {status:item?.status}, {status:"cancelado"});
   };
 
   const statusColor={aberto:C.warn,quitado:C.success,cancelado:C.danger,vencido:C.danger};
@@ -3798,11 +3827,12 @@ function Financeiro({data,insert,update,user}) {
 
   const abrirCaixa = async () => {
     if(!caixaModal) return;
-    await insert("caixa_diario",{
+    const novo = await insert("caixa_diario",{
       conta_id:caixaModal.conta.id, data:today(),
       valor_abertura:Number(caixaValor)||0,
       status:"aberto", aberto_por:user?.nome||"—",
     });
+    registrarLog("caixa_diario", novo?.id, "caixa_aberto", null, {conta:caixaModal.conta.nome, valor_abertura:Number(caixaValor)||0});
     setCaixaModal(null); setCaixaValor("");
   };
 
@@ -3810,11 +3840,9 @@ function Financeiro({data,insert,update,user}) {
     if(!caixaModal||!caixaModal.registro) return;
     const sistema = calcularSaldoSistemaDoDia(caixaModal.conta.id, caixaModal.registro.data, caixaModal.registro.valor_abertura);
     const informado = Number(caixaValor)||0;
-    await update("caixa_diario", caixaModal.registro.id, {
-      status:"fechado", valor_sistema:sistema, valor_informado:informado,
-      diferenca: informado-sistema, fechado_por:user?.nome||"—",
-      fechado_em:new Date().toISOString(),
-    });
+    const depois = {status:"fechado", valor_sistema:sistema, valor_informado:informado, diferenca: informado-sistema, fechado_por:user?.nome||"—", fechado_em:new Date().toISOString()};
+    await update("caixa_diario", caixaModal.registro.id, depois);
+    registrarLog("caixa_diario", caixaModal.registro.id, "caixa_fechado", {conta:caixaModal.conta.nome}, depois);
     setCaixaModal(null); setCaixaValor("");
   };
 
@@ -3825,6 +3853,7 @@ function Financeiro({data,insert,update,user}) {
     {id:"fluxo",label:"Fluxo de Caixa",valor:fmt(totalEntradasFluxo-totalSaidasFluxo),cor:C.info},
     {id:"dre",label:"DRE Simplificado",valor:fmt(dreResultado),cor:dreResultado>=0?C.success:C.danger},
     {id:"extrato",label:"Extrato por Conta",valor:fmt(saldos.reduce((s,c)=>s+c.saldo,0)),cor:C.info},
+    ...(isSupervisor?[{id:"auditoria",label:"Auditoria",valor:`${(data.logs_financeiros||[]).length} registro(s)`,cor:C.purple}]:[]),
   ];
 
   return(
@@ -3859,6 +3888,7 @@ function Financeiro({data,insert,update,user}) {
               <span style={{color:C.muted,fontSize:11}}>{c.forma_pagamento||"—"}</span>,
               <Badge text="Aberto" color={C.warn}/>,
               <div style={{display:"flex",gap:4}}>
+                {isSupervisor&&<Btn v="g" onClick={()=>abrirEdicaoLancamento(c,"rec")} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>}
                 <Btn v="ok" onClick={()=>{setBaixaModal({...c,_tipo:"receber"});}} style={{padding:"3px 8px",fontSize:10}}>Receber</Btn>
                 <Btn v="d" onClick={()=>cancelar(c.id,"receber")} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
               </div>
@@ -3898,6 +3928,7 @@ function Financeiro({data,insert,update,user}) {
               <span style={{color:C.danger,fontWeight:700}}>{fmt(c.valor)}</span>,
               <Badge text="Aberto" color={C.warn}/>,
               <div style={{display:"flex",gap:4}}>
+                {isSupervisor&&<Btn v="g" onClick={()=>abrirEdicaoLancamento(c,"pag")} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>}
                 <Btn v="ok" onClick={()=>{setBaixaModal({...c,_tipo:"pagar"});}} style={{padding:"3px 8px",fontSize:10}}>Pagar</Btn>
                 <Btn v="d" onClick={()=>cancelar(c.id,"pagar")} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
               </div>
@@ -4049,8 +4080,33 @@ function Financeiro({data,insert,update,user}) {
         />
       </>}
 
+      {/* AUDITORIA */}
+      {aba==="auditoria"&&isSupervisor&&<>
+        <p style={{color:C.muted,fontSize:11,marginBottom:11}}>Histórico de edições, baixas, cancelamentos e aberturas/fechamentos de caixa no financeiro — mais recente primeiro.</p>
+        <ST cols={["Quando","Usuário","Ação","Tabela","O que mudou"]}
+          rows={(data.logs_financeiros||[]).map(l=>{
+            const antes=l.dados_antes||{}, depois=l.dados_depois||{};
+            const chaves=[...new Set([...Object.keys(antes),...Object.keys(depois)])];
+            const resumo = chaves.map(k=>{
+              const a=antes[k], d=depois[k];
+              if(JSON.stringify(a)===JSON.stringify(d)) return null;
+              return `${k}: ${a??"—"} → ${d??"—"}`;
+            }).filter(Boolean).join(" · ") || "—";
+            const acaoCor={editado:C.info,baixado:C.success,cancelado:C.danger,caixa_aberto:C.accent,caixa_fechado:C.warn}[l.acao]||C.muted;
+            return [
+              <span style={{fontSize:11}}>{new Date(l.created_at).toLocaleString("pt-BR")}</span>,
+              <span style={{fontSize:11}}>{l.usuario_nome||l.usuario_email||"—"}</span>,
+              <Badge text={l.acao} color={acaoCor}/>,
+              <span style={{fontSize:11,color:C.muted}}>{l.tabela}</span>,
+              <span style={{fontSize:11,color:C.text}}>{resumo}</span>,
+            ];
+          })}
+          empty="Nenhum registro de auditoria ainda."
+        />
+      </>}
+
       {/* MODAL LANÇAMENTO */}
-      {modal&&<Mod title={modal==="rec"?"Nova Conta a Receber":"Nova Conta a Pagar"} onClose={()=>setModal(null)}>
+      {modal&&<Mod title={editingLancamento?`Editar — ${editingLancamento.descricao}`:(modal==="rec"?"Nova Conta a Receber":"Nova Conta a Pagar")} onClose={()=>{setModal(null);setEditingLancamento(null);}}>
         <Inp label="Descrição" value={form.descricao} onChange={e=>setForm(f=>({...f,descricao:e.target.value}))}/>
         <Inp label="Valor (R$)" type="number" value={form.valor} onChange={e=>setForm(f=>({...f,valor:e.target.value}))}/>
         {modal==="pag"&&<FornecedorBusca fornecedores={data.fornecedores} insert={insert} value={form.fornecedor_id}
@@ -4058,23 +4114,45 @@ function Financeiro({data,insert,update,user}) {
         {modal==="rec"&&<PacienteBusca pacientes={data.pacientes} insert={insert} value={form.paciente_id}
           onChange={(id,nome)=>setForm(f=>({...f,paciente_id:id,paciente:nome}))}/>}
         <CategoriaFinanceiraSelect data={data} insert={insert} tipo={modal==="rec"?"receita":"despesa"} value={form.categoria_id}
-          onChange={v=>setForm(f=>({...f,categoria_id:v}))}/>
+          onChange={v=>{
+            const cat = (data.categorias_financeiras||[]).find(c=>String(c.id)===String(v));
+            const ehMensal = cat?.competencia==="mensal";
+            setForm(f=>({...f,categoria_id:v, recorrente: ehMensal?true:f.recorrente, parcelas: ehMensal?1:f.parcelas}));
+          }}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Vencimento" type="date" value={form.vencimento} onChange={e=>setForm(f=>({...f,vencimento:e.target.value}))}/>
           <Inp label="Data de Competência" type="date" value={form.data_competencia} onChange={e=>setForm(f=>({...f,data_competencia:e.target.value}))}/>
         </div>
         <Inp label="Data de Lançamento" type="date" value={form.data_lancamento} onChange={e=>setForm(f=>({...f,data_lancamento:e.target.value}))}/>
         <p style={{color:C.muted,fontSize:10,marginTop:-6,marginBottom:10}}>Por padrão é hoje — mude para uma data passada se estiver registrando algo retroativo.</p>
-        {modal==="pag"&&<label style={{display:"flex",alignItems:"center",gap:8,marginTop:2,marginBottom:10,cursor:"pointer"}}>
-          <input type="checkbox" checked={!!form.recorrente} onChange={e=>setForm(f=>({...f,recorrente:e.target.checked}))}/>
-          <span style={{color:C.text,fontSize:12}}>Despesa recorrente (fixa, se repete todo mês)</span>
-        </label>}
-        {!form.recorrente&&<Inp label="Número de parcelas" type="number" value={form.parcelas} onChange={e=>setForm(f=>({...f,parcelas:e.target.value}))}/>}
-        {Number(form.parcelas)>1&&<p style={{color:C.muted,fontSize:10,marginTop:-6,marginBottom:10}}>Gera {form.parcelas} lançamentos de {fmt((Number(form.valor)||0)/Number(form.parcelas))}, vencendo a cada mês a partir do vencimento informado.</p>}
+        {(()=>{ const catEscolhida=(data.categorias_financeiras||[]).find(c=>String(c.id)===String(form.categoria_id)); const ehMensal=catEscolhida?.competencia==="mensal"; return <>
+          {modal==="pag"&&<label style={{display:"flex",alignItems:"center",gap:8,marginTop:2,marginBottom:10,cursor:ehMensal?"default":"pointer"}}>
+            <input type="checkbox" checked={!!form.recorrente} disabled={ehMensal} onChange={e=>setForm(f=>({...f,recorrente:e.target.checked}))}/>
+            <span style={{color:C.text,fontSize:12}}>Despesa recorrente (fixa, se repete todo mês){ehMensal&&" — competência mensal da categoria"}</span>
+          </label>}
+          {!form.recorrente&&!ehMensal&&<Inp label="Número de parcelas" type="number" value={form.parcelas} onChange={e=>setForm(f=>({...f,parcelas:e.target.value}))}/>}
+          {Number(form.parcelas)>1&&!ehMensal&&<p style={{color:C.muted,fontSize:10,marginTop:-6,marginBottom:10}}>Gera {form.parcelas} lançamentos de {fmt((Number(form.valor)||0)/Number(form.parcelas))}, vencendo a cada mês a partir do vencimento informado.</p>}
+        </>; })()}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
-          <Btn v="g" onClick={()=>setModal(null)}>Cancelar</Btn>
+          <Btn v="g" onClick={()=>{setModal(null);setEditingLancamento(null);}}>Cancelar</Btn>
           <Btn onClick={async()=>{
             const v=Number(form.valor);
+            const tabela = modal==="rec"?"contas_receber":"contas_pagar";
+
+            if(editingLancamento){
+              const depois={
+                descricao:form.descricao, valor:v, vencimento:form.vencimento,
+                data_lancamento:form.data_lancamento||today(), data_competencia:form.data_competencia||form.vencimento,
+                categoria_id:form.categoria_id?Number(form.categoria_id):null,
+                ...(modal==="rec"?{paciente:form.paciente,paciente_id:form.paciente_id?Number(form.paciente_id):null}
+                                  :{fornecedor:form.fornecedor,fornecedor_id:form.fornecedor_id?Number(form.fornecedor_id):null,recorrente:!!form.recorrente}),
+              };
+              await update(tabela, editingLancamento.id, depois);
+              registrarLog(tabela, editingLancamento.id, "editado", editingLancamento, depois);
+              setModal(null); setEditingLancamento(null);
+              return;
+            }
+
             const totalParcelas=Math.max(1,Number(form.parcelas)||1);
             const grupoId = totalParcelas>1 ? gerarUUID() : null;
             const valorParcela = Math.round((v/totalParcelas)*100)/100;
@@ -4093,7 +4171,7 @@ function Financeiro({data,insert,update,user}) {
               if(modal==="pag")await insert("contas_pagar",{...base,fornecedor:form.fornecedor,fornecedor_id:form.fornecedor_id?Number(form.fornecedor_id):null,recorrente:!!form.recorrente});
             }
             setModal(null);
-          }}><I.Check s={12}/> Salvar</Btn>
+          }}><I.Check s={12}/> {editingLancamento?"Salvar Alterações":"Salvar"}</Btn>
         </div>
       </Mod>}
 
@@ -5181,12 +5259,13 @@ function Cadastros({data,insert,update,remove,user}) {
 
         {catAba==="categorias"&&<>
           <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
-            <Btn onClick={()=>abrirModal(null,{nome:"",tipo:"despesa",conta_dre_id:"",ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
+            <Btn onClick={()=>abrirModal(null,{nome:"",tipo:"despesa",conta_dre_id:"",ativo:true,competencia:"unica"})}><I.Plus s={12}/> Adicionar</Btn>
           </div>
-          <ST cols={["Categoria","Tipo","Conta do DRE","Status","Ações"]}
+          <ST cols={["Categoria","Tipo","Competência","Conta do DRE","Status","Ações"]}
             rows={(data.categorias_financeiras||[]).map(cf=>[
               <span style={{fontWeight:600}}>{cf.nome}</span>,
               <Badge text={cf.tipo==="receita"?"Receita":"Despesa"} color={cf.tipo==="receita"?C.success:C.danger}/>,
+              <Badge text={cf.competencia==="mensal"?"Mensal Fixa":"Única/Parcelada"} color={cf.competencia==="mensal"?C.accent:C.muted}/>,
               <span style={{color:C.muted,fontSize:11}}>{(data.contas_dre||[]).find(cd=>cd.id===cf.conta_dre_id)?.nome||"— (não entra no DRE)"}</span>,
               <Badge text={cf.ativo?"Ativa":"Inativa"} color={cf.ativo?C.success:C.muted}/>,
               <div style={{display:"flex",gap:4}}>
@@ -5200,6 +5279,7 @@ function Cadastros({data,insert,update,remove,user}) {
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
               <Sel label="Tipo" value={form.tipo||"despesa"} onChange={e=>setForm(f=>({...f,tipo:e.target.value,conta_dre_id:""}))} options={[{value:"despesa",label:"Despesa"},{value:"receita",label:"Receita"}]}/>
+              <Sel label="Competência" value={form.competencia||"unica"} onChange={e=>fv("competencia",e.target.value)} options={[{value:"unica",label:"Única ou Parcelada (ex: compra avulsa)"},{value:"mensal",label:"Mensal Fixa (ex: internet, água, luz, aluguel)"}]}/>
             </div>
             <Sel label="Conta do DRE (opcional — deixe em branco se não deve entrar no DRE)" value={form.conta_dre_id||""} onChange={e=>fv("conta_dre_id",e.target.value)}
               options={[{value:"",label:"Não entra no DRE"}, ...(data.contas_dre||[]).filter(cd=>cd.tipo===(form.tipo||"despesa")&&cd.ativo!==false).map(cd=>({value:cd.id,label:cd.nome}))]}/>
