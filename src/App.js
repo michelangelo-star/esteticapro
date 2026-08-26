@@ -333,6 +333,8 @@ const fmt = v => (Number(v)||0).toLocaleString("pt-BR",{style:"currency",currenc
 const fmtN = v => (Number(v)||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const today = () => new Date().toISOString().split("T")[0];
 const addDias = (dataISO, dias) => { const d=new Date(dataISO+"T12:00:00"); d.setDate(d.getDate()+(Number(dias)||0)); return d.toISOString().split("T")[0]; };
+const addMeses = (dataISO, meses) => { const d=new Date(dataISO+"T12:00:00"); d.setMonth(d.getMonth()+(Number(meses)||0)); return d.toISOString().split("T")[0]; };
+const gerarUUID = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 const mesAtualRange = () => { const h=new Date(); const de=new Date(h.getFullYear(),h.getMonth(),1); const ate=new Date(h.getFullYear(),h.getMonth()+1,0); return {de:de.toISOString().split("T")[0], ate:ate.toISOString().split("T")[0]}; };
 
 /* Estrutura padrão de DRE gerencial — os 7 grupos são fixos (formato de mercado);
@@ -3450,7 +3452,7 @@ function Financeiro({data,insert,update,user}) {
     setBaixaModal(null);setBaixaConta("");
   };
   const abrirModalLancamento = (tipo) => {
-    setForm({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false});
+    setForm({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false,parcelas:1});
     setModal(tipo);
   };
 
@@ -3831,17 +3833,33 @@ function Financeiro({data,insert,update,user}) {
         </div>
         <Inp label="Data de Lançamento" type="date" value={form.data_lancamento} onChange={e=>setForm(f=>({...f,data_lancamento:e.target.value}))}/>
         <p style={{color:C.muted,fontSize:10,marginTop:-6,marginBottom:10}}>Por padrão é hoje — mude para uma data passada se estiver registrando algo retroativo.</p>
-        {modal==="pag"&&<label style={{display:"flex",alignItems:"center",gap:8,marginTop:2,cursor:"pointer"}}>
+        {modal==="pag"&&<label style={{display:"flex",alignItems:"center",gap:8,marginTop:2,marginBottom:10,cursor:"pointer"}}>
           <input type="checkbox" checked={!!form.recorrente} onChange={e=>setForm(f=>({...f,recorrente:e.target.checked}))}/>
           <span style={{color:C.text,fontSize:12}}>Despesa recorrente (fixa, se repete todo mês)</span>
         </label>}
+        {!form.recorrente&&<Inp label="Número de parcelas" type="number" value={form.parcelas} onChange={e=>setForm(f=>({...f,parcelas:e.target.value}))}/>}
+        {Number(form.parcelas)>1&&<p style={{color:C.muted,fontSize:10,marginTop:-6,marginBottom:10}}>Gera {form.parcelas} lançamentos de {fmt((Number(form.valor)||0)/Number(form.parcelas))}, vencendo a cada mês a partir do vencimento informado.</p>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
           <Btn v="g" onClick={()=>setModal(null)}>Cancelar</Btn>
           <Btn onClick={async()=>{
             const v=Number(form.valor);
-            const base={descricao:form.descricao,valor:v,vencimento:form.vencimento,data_lancamento:form.data_lancamento||today(),data_competencia:form.data_competencia||form.vencimento,categoria_id:form.categoria_id?Number(form.categoria_id):null,status:"aberto"};
-            if(modal==="rec")await insert("contas_receber",{...base,paciente:form.paciente});
-            if(modal==="pag")await insert("contas_pagar",{...base,fornecedor:form.fornecedor,recorrente:!!form.recorrente});
+            const totalParcelas=Math.max(1,Number(form.parcelas)||1);
+            const grupoId = totalParcelas>1 ? gerarUUID() : null;
+            const valorParcela = Math.round((v/totalParcelas)*100)/100;
+            for(let i=0;i<totalParcelas;i++){
+              const venc = totalParcelas>1 ? addMeses(form.vencimento, i) : form.vencimento;
+              // Ajusta a última parcela pra fechar o total certinho (evita sobra de centavos por arredondamento)
+              const valorEsta = (i===totalParcelas-1) ? Math.round((v-valorParcela*(totalParcelas-1))*100)/100 : valorParcela;
+              const base={
+                descricao: totalParcelas>1 ? `${form.descricao} (${i+1}/${totalParcelas})` : form.descricao,
+                valor:valorEsta, vencimento:venc,
+                data_lancamento:form.data_lancamento||today(), data_competencia:form.data_competencia||form.vencimento,
+                categoria_id:form.categoria_id?Number(form.categoria_id):null, status:"aberto",
+                grupo_parcelamento_id:grupoId, numero_parcela:totalParcelas>1?i+1:null, total_parcelas:totalParcelas>1?totalParcelas:null,
+              };
+              if(modal==="rec")await insert("contas_receber",{...base,paciente:form.paciente});
+              if(modal==="pag")await insert("contas_pagar",{...base,fornecedor:form.fornecedor,recorrente:!!form.recorrente});
+            }
             setModal(null);
           }}><I.Check s={12}/> Salvar</Btn>
         </div>
