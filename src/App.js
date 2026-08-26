@@ -2440,6 +2440,7 @@ function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu
   const [editingId,setEditingId] = useState(null); // id do atendimento em edição (já existe no banco)
   const [receberModal,setReceberModal] = useState(null); // atendimento aguardando confirmação de recebimento
   const [contaEscolhida,setContaEscolhida] = useState("");
+  const [nsu,setNsu] = useState("");
   const [recebendo,setRecebendo] = useState(false);
   const [filt,setFilt] = useState({profissional:"",de:"",ate:"",pago:""});
   const ff = (k,v) => setFilt(p=>({...p,[k]:v}));
@@ -2539,7 +2540,7 @@ function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu
     setReceberModal(at);
   };
 
-  const receber = async (at, contaId) => {
+  const receber = async (at, contaId, nsuComprovante) => {
     const fp = data.formas_pagamento.find(f=>f.id===at.forma_pagamento_id);
     const valor = Number(at.valor_final||at.valor)||0;
     const catServicos = (data.categorias_financeiras||[]).find(c=>c.tipo==="receita"&&c.nome==="Atendimentos");
@@ -2571,6 +2572,7 @@ function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu
       paciente:at.paciente, paciente_id:at.paciente_id, atendimento_id:at.id,
       data_lancamento:today(), data_competencia:at.data,
       forma_pagamento:fp?.nome||"", forma_pagamento_id:at.forma_pagamento_id||null,
+      nsu:nsuComprovante||null,
     };
 
     if(formaEhImediata(fp)){
@@ -2959,8 +2961,9 @@ function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu
       {receberModal&&(()=>{
         const fpModal = data.formas_pagamento.find(f=>f.id===receberModal.forma_pagamento_id);
         const imediato = formaEhImediata(fpModal);
+        const ehCartao = fpModal?.tipo==="credito"||fpModal?.tipo==="debito";
         return (
-      <Mod title="Confirmar Recebimento" onClose={()=>{setReceberModal(null);setContaEscolhida("");}}>
+      <Mod title="Confirmar Recebimento" onClose={()=>{setReceberModal(null);setContaEscolhida("");setNsu("");}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:13,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
             <span style={{color:C.muted,fontSize:11}}>Paciente</span>
@@ -2991,14 +2994,16 @@ function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu
           </span>
         </div>}
 
+        {ehCartao&&<Inp label="NSU do comprovante" value={nsu} onChange={e=>setNsu(e.target.value)} placeholder="Número do comprovante da maquininha" style={{marginTop:12}}/>}
+
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
-          <Btn v="g" onClick={()=>{setReceberModal(null);setContaEscolhida("");}}>Cancelar</Btn>
-          <Btn v="ok" disabled={(imediato&&!contaEscolhida)||recebendo} onClick={async()=>{
+          <Btn v="g" onClick={()=>{setReceberModal(null);setContaEscolhida("");setNsu("");}}>Cancelar</Btn>
+          <Btn v="ok" disabled={(imediato&&!contaEscolhida)||(ehCartao&&!nsu.trim())||recebendo} onClick={async()=>{
             setRecebendo(true);
             const atRecebido = receberModal;
-            await receber(atRecebido, contaEscolhida);
+            await receber(atRecebido, contaEscolhida, ehCartao?nsu.trim():null);
             setRecebendo(false);
-            setReceberModal(null); setContaEscolhida("");
+            setReceberModal(null); setContaEscolhida(""); setNsu("");
             if(window.confirm("Recebimento confirmado! Deseja emitir o recibo de pagamento agora?")) imprimirRecibo(atRecebido);
           }}>
             <I.Check s={12}/> {recebendo?"Recebendo...":"Confirmar Recebimento"}
@@ -3947,6 +3952,7 @@ function Financeiro({data,insert,update,user}) {
   const [editingLancamento,setEditingLancamento]=useState(null);
   const [baixaModal,setBaixaModal]=useState(null);
   const [baixaConta,setBaixaConta]=useState("");
+  const [baixaNsu,setBaixaNsu]=useState("");
   const [filtR,setFiltR]=useState({paciente:"",de:"",ate:"",status:""});
   const [filtP,setFiltP]=useState({fornecedor:"",de:"",ate:"",status:"",recorrencia:""});
   const [filtM,setFiltM]=useState({conta:"",de:"",ate:""});
@@ -4019,10 +4025,10 @@ function Financeiro({data,insert,update,user}) {
     insert("logs_financeiros",{usuario_nome:user?.nome||"", usuario_email:user?.email||"", tabela, registro_id, acao, dados_antes:dados_antes||null, dados_depois:dados_depois||null});
   };
 
-  const handleBaixa=async(item,tipo)=>{
+  const handleBaixa=async(item,tipo,nsuComprovante)=>{
     if(!baixaConta){alert("Selecione a conta.");return;}
     const tabela=tipo==="receber"?"contas_receber":"contas_pagar";
-    const depois={status:"quitado",conta_id:parseInt(baixaConta),data_baixa:today()};
+    const depois={status:"quitado",conta_id:parseInt(baixaConta),data_baixa:today(), ...(tipo==="receber"?{nsu:nsuComprovante||null}:{})};
     await update(tabela,item.id,depois);
     await insert("movimentacoes",{conta_id:parseInt(baixaConta),tipo:tipo==="receber"?"entrada":"saida",origem:tipo==="receber"?"contas_receber":"contas_pagar",origem_id:item.id,descricao:tipo==="receber"?`Recebimento — ${item.paciente||item.descricao}`:`Pagamento — ${item.descricao}`,valor:Number(item.valor)||0,data:today()});
     registrarLog(tabela, item.id, "baixado", {status:item.status}, depois);
@@ -4218,7 +4224,7 @@ function Financeiro({data,insert,update,user}) {
           <Btn onClick={()=>abrirModalLancamento("rec")}><I.Plus s={12}/> Lançar</Btn>
         </div>
         <FilterBar filters={[{key:"paciente",type:"text",label:"Buscar paciente..."},{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"}]} values={filtR} onChange={(k,v)=>setFiltR(p=>({...p,[k]:v}))}/>
-        <ST cols={subAbaReceber==="aberto"?["Paciente","Descrição","Categoria","Vencimento","Valor","Forma Pgto","Status","Ações"]:["Paciente","Descrição","Recebido em","Valor","Forma Pgto","Conta"]}
+        <ST cols={subAbaReceber==="aberto"?["Paciente","Descrição","Categoria","Vencimento","Valor","Forma Pgto","Status","Ações"]:["Paciente","Descrição","Recebido em","Valor","Forma Pgto","NSU","Conta"]}
           rows={(subAbaReceber==="aberto"?cr_abertas:cr_recebidas).map(c=>{
             if(subAbaReceber==="aberto") return [
               <span style={{fontWeight:600}}>{c.paciente||"—"}</span>,
@@ -4241,6 +4247,7 @@ function Financeiro({data,insert,update,user}) {
               <span style={{fontSize:11}}>{fmtDate(c.data_baixa)}</span>,
               <span style={{color:C.success,fontWeight:700}}>{fmt(c.valor)}</span>,
               <span style={{color:C.muted,fontSize:11}}>{c.forma_pagamento||"—"}</span>,
+              <span style={{color:C.muted,fontSize:11}}>{c.nsu||"—"}</span>,
               <span style={{fontSize:11}}>{cont?.nome||"—"}</span>,
             ];
           })}
@@ -4517,18 +4524,25 @@ function Financeiro({data,insert,update,user}) {
       </Mod>}
 
       {/* MODAL BAIXA */}
-      {baixaModal&&<Mod title={`Baixar — ${baixaModal.descricao}`} onClose={()=>{setBaixaModal(null);setBaixaConta("");}}>
+      {baixaModal&&(()=>{
+        const fpBaixa = data.formas_pagamento.find(f=>f.id===baixaModal.forma_pagamento_id);
+        const ehCartaoBaixa = baixaModal._tipo==="receber" && (fpBaixa?.tipo==="credito"||fpBaixa?.tipo==="debito");
+        return (
+      <Mod title={`Baixar — ${baixaModal.descricao}`} onClose={()=>{setBaixaModal(null);setBaixaConta("");setBaixaNsu("");}}>
         <div style={{background:C.surface,borderRadius:9,padding:12,marginBottom:13}}>
           <div style={{color:C.muted,fontSize:11,marginBottom:3}}>{baixaModal._tipo==="receber"?"Recebimento de:":"Pagamento de:"}</div>
           <div style={{color:C.text,fontWeight:700,fontSize:16}}>{fmt(baixaModal.valor)}</div>
           <div style={{color:C.muted,fontSize:11,marginTop:2}}>{baixaModal.descricao}</div>
         </div>
         <Sel label="Conta de destino (onde o dinheiro vai/saiu)" value={baixaConta} onChange={e=>setBaixaConta(e.target.value)} options={[{value:"",label:"Selecione a conta..."}, ...data.contas_bancarias.map(c=>({value:c.id,label:`${c.nome} (${c.tipo}) — Saldo: ${fmt(saldos.find(s=>s.id===c.id)?.saldo||0)}`}))]}/>
+        {ehCartaoBaixa&&<Inp label="NSU do comprovante" value={baixaNsu} onChange={e=>setBaixaNsu(e.target.value)} placeholder="Número do comprovante da maquininha" style={{marginTop:10}}/>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <Btn v="g" onClick={()=>{setBaixaModal(null);setBaixaConta("");}}>Cancelar</Btn>
-          <Btn v="ok" onClick={()=>handleBaixa(baixaModal,baixaModal._tipo)} disabled={!baixaConta}><I.Check s={12}/> Confirmar Baixa</Btn>
+          <Btn v="g" onClick={()=>{setBaixaModal(null);setBaixaConta("");setBaixaNsu("");}}>Cancelar</Btn>
+          <Btn v="ok" onClick={()=>{handleBaixa(baixaModal,baixaModal._tipo,ehCartaoBaixa?baixaNsu.trim():null);setBaixaNsu("");}} disabled={!baixaConta||(ehCartaoBaixa&&!baixaNsu.trim())}><I.Check s={12}/> Confirmar Baixa</Btn>
         </div>
-      </Mod>}
+      </Mod>
+        );
+      })()}
 
       {/* MODAL ABRIR/FECHAR CAIXA */}
       {caixaModal&&<Mod title={caixaModal.tipo==="abrir"?`Abrir Caixa — ${caixaModal.conta.nome}`:`Fechar Caixa — ${caixaModal.conta.nome}`} onClose={()=>{setCaixaModal(null);setCaixaValor("");}}>
