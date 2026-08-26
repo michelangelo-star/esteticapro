@@ -2352,13 +2352,33 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
   const receber = async (at, contaId) => {
     const fp = data.formas_pagamento.find(f=>f.id===at.forma_pagamento_id);
     const valor = Number(at.valor_final||at.valor)||0;
-    const catAtendimentos = (data.categorias_financeiras||[]).find(c=>c.tipo==="receita"&&c.nome==="Atendimentos");
+    const catServicos = (data.categorias_financeiras||[]).find(c=>c.tipo==="receita"&&c.nome==="Atendimentos");
+    const catProdutos = (data.categorias_financeiras||[]).find(c=>c.tipo==="receita"&&c.nome==="Produtos Vendidos");
     const atItens = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
     const descNomes = atItens.length>0 ? atItens.map(i=>i.descricao).join(", ") : at.servico;
+
+    /* Separa a receita por tipo pro DRE (produto vendido ≠ serviço prestado). Divide o valor
+       final proporcionalmente ao subtotal de cada tipo nos itens do atendimento — se só tiver
+       um tipo, ou não houver "Produtos Vendidos" cadastrada ainda, cai num único lançamento
+       (mesmo comportamento de sempre). */
+    const subtotalProdutos = atItens.filter(i=>i.tipo==="produto").reduce((s,i)=>s+(Number(i.valor_total)||0),0);
+    const subtotalServicos = atItens.filter(i=>i.tipo==="procedimento").reduce((s,i)=>s+(Number(i.valor_total)||0),0);
+    const somaItens = subtotalProdutos+subtotalServicos;
+    let partes;
+    if(somaItens>0 && subtotalProdutos>0 && subtotalServicos>0 && catProdutos){
+      const valorProdutos = Math.round((valor*subtotalProdutos/somaItens)*100)/100;
+      partes = [
+        {categoria_id:catProdutos.id, valor:valorProdutos, descricao:`Atendimento — Produtos: ${atItens.filter(i=>i.tipo==="produto").map(i=>i.descricao).join(", ")}`},
+        {categoria_id:catServicos?.id||null, valor:Math.round((valor-valorProdutos)*100)/100, descricao:`Atendimento — Serviços: ${atItens.filter(i=>i.tipo==="procedimento").map(i=>i.descricao).join(", ")}`},
+      ];
+    } else if(somaItens>0 && subtotalProdutos>0 && subtotalServicos===0 && catProdutos){
+      partes = [{categoria_id:catProdutos.id, valor, descricao:`Atendimento — ${descNomes}`}];
+    } else {
+      partes = [{categoria_id:catServicos?.id||null, valor, descricao:`Atendimento — ${descNomes}`}];
+    }
+
     const camposBase = {
       paciente:at.paciente, paciente_id:at.paciente_id, atendimento_id:at.id,
-      descricao:`Atendimento — ${descNomes}`, valor,
-      categoria_id:catAtendimentos?.id||null,
       data_lancamento:today(), data_competencia:at.data,
       forma_pagamento:fp?.nome||"", forma_pagamento_id:at.forma_pagamento_id||null,
     };
@@ -2366,13 +2386,17 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
     if(formaEhImediata(fp)){
       const contaDestino = data.contas_bancarias.find(c=>c.id===parseInt(contaId));
       if(!contaDestino){ alert("Selecione a conta que vai receber o valor."); return; }
-      /* A conta a receber nasce agora, já quitada — é o registro do recebimento em si */
-      await insert("contas_receber",{...camposBase, vencimento:today(), status:"quitado", conta_id:contaDestino.id, data_baixa:today()});
+      /* A(s) conta(s) a receber nascem agora, já quitadas — é o registro do recebimento em si */
+      for(const parte of partes){
+        await insert("contas_receber",{...camposBase, ...parte, vencimento:today(), status:"quitado", conta_id:contaDestino.id, data_baixa:today()});
+      }
       await insert("movimentacoes",{conta_id:contaDestino.id, tipo:"entrada", origem:"atendimento", origem_id:at.id, descricao:`Recebimento — ${at.paciente}`, valor, data:today()});
     } else {
       /* Fica pendente até o repasse cair — a baixa (com escolha da conta) acontece
          em Financeiro > Contas a Receber, no dia em que o dinheiro efetivamente entrar. */
-      await insert("contas_receber",{...camposBase, vencimento:addDias(at.data, fp?.prazo_dias||0), status:"aberto"});
+      for(const parte of partes){
+        await insert("contas_receber",{...camposBase, ...parte, vencimento:addDias(at.data, fp?.prazo_dias||0), status:"aberto"});
+      }
     }
     await update("atendimentos", at.id, {status:"recebido", pago:true});
     await gerarComissaoSeAplicavel(at);
