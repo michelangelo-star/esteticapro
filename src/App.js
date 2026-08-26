@@ -299,6 +299,12 @@ const mkDemo = () => ({
     {id:1,nome:"Stone",taxa_percentual:2.5,prazo_repasse_dias:1,max_parcelas:12,ativo:true},
     {id:2,nome:"Cielo",taxa_percentual:3.2,prazo_repasse_dias:30,max_parcelas:12,ativo:true},
   ],
+  categorias_produtos:[
+    {id:1,nome:"Injetável",ativo:true},
+    {id:2,nome:"Skincare",ativo:true},
+    {id:3,nome:"EPI",ativo:true},
+  ],
+  produto_fornecedores:[],
   salas:[
     {id:1,nome:"Sala 1 - Estética Facial",descricao:"18m², maca elétrica, espelho iluminado",valor_aluguel:1500,status:"alugada",locatario_nome:"Juliana Freitas",locatario_cpf:"123.456.789-00",locatario_telefone:"(11)98888-4444",contrato_inicio:"2025-01-10",contrato_fim:"2025-12-31",contrato_arquivo_nome:"",contrato_arquivo_base64:""},
     {id:2,nome:"Sala 2 - Estética Corporal",descricao:"22m², maca de massagem, ducha",valor_aluguel:1800,status:"disponivel"},
@@ -681,6 +687,41 @@ const PacienteBusca = ({pacientes, value, onChange, insert, label="Paciente"}) =
   );
 };
 
+/* Seleção de categoria (compartilhada entre Produtos e Procedimentos) com criação rápida.
+   O valor gravado continua sendo o nome (texto), como já era — só passa a vir de uma lista
+   cadastrada em vez de digitado livre, evitando "Skincare"/"skin care"/"Skin Care" nas mesmas telas. */
+const CategoriaSelect = ({data, insert, value, onChange, label="Categoria"}) => {
+  const [addingNew,setAddingNew] = useState(false);
+  const [novoNome,setNovoNome] = useState("");
+  const cats = (data.categorias_produtos||[]).filter(c=>c.ativo);
+  const opcoes = cats.map(c=>({value:c.nome, label:c.nome}));
+  if(value && !opcoes.find(o=>o.value===value)) opcoes.unshift({value, label:value});
+
+  if(addingNew) return (
+    <div>
+      <label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>{label}</label>
+      <div style={{display:"flex",gap:6}}>
+        <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Nova categoria..."
+          style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:13}}/>
+        <button type="button" onClick={async()=>{
+          const nome=novoNome.trim();
+          if(!nome) return;
+          await insert("categorias_produtos",{nome,ativo:true});
+          onChange(nome); setNovoNome(""); setAddingNew(false);
+        }} style={{background:C.accentSoft,border:`1px solid ${C.accent}40`,borderRadius:8,width:38,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Check c={C.accent} s={14}/></button>
+        <button type="button" onClick={()=>{setAddingNew(false);setNovoNome("");}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:38,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.X c={C.muted} s={14}/></button>
+      </div>
+    </div>
+  );
+
+  return (
+    <Sel label={label} value={value||""} onChange={e=>{
+      if(e.target.value==="__nova__") setAddingNew(true);
+      else onChange(e.target.value);
+    }} options={[{value:"",label:"Selecione..."}, ...opcoes, {value:"__nova__",label:"+ Nova categoria..."}]}/>
+  );
+};
+
 /* ─── TABELA ─────────────────────────────────────────────────── */
 const ST = ({cols,rows,empty="Nenhum registro encontrado."})=>(
   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,overflow:"hidden",boxShadow:"0 1px 8px #7C5CBF0A"}}>
@@ -729,7 +770,7 @@ function useData(clinicaId) {
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
-        adquirentes,
+        adquirentes, categorias_produtos, produto_fornecedores,
       ] = await Promise.all([
         sb.get("profissionais",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("fornecedores",        `clinica_id=eq.${cid}&ativo=eq.true`),
@@ -760,6 +801,8 @@ function useData(clinicaId) {
         sb.get("horarios_profissional",`clinica_id=eq.${cid}`),
         sb.get("bloqueios_agenda",    `clinica_id=eq.${cid}&order=data_inicio.desc`),
         sb.get("adquirentes",         `clinica_id=eq.${cid}&order=nome.asc`),
+        sb.get("categorias_produtos", `clinica_id=eq.${cid}&order=nome.asc`),
+        sb.get("produto_fornecedores",`clinica_id=eq.${cid}`),
       ]);
 
       setData({
@@ -771,7 +814,7 @@ function useData(clinicaId) {
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
-        adquirentes,
+        adquirentes, categorias_produtos, produto_fornecedores,
       });
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
@@ -2732,17 +2775,50 @@ function Produtos({data,insert,update,remove}) {
   const [modal,setModal]=useState(false);const [editing,setEditing]=useState(null);
   const init={fornecedor_id:"",nome:"",descricao:"",categoria:"",unidade:"unidade",custo_unitario:0,preco_venda:0,markup:0,estoque_atual:0,estoque_inicial:0,estoque_minimo:2,ativo:true};
   const [form,setForm]=useState(init);const f=(k,v)=>setForm(p=>({...p,[k]:v}));
-  const abrir=(item)=>{if(item){setEditing(item);setForm(item);}else{setEditing(null);setForm(init);}setModal(true);};
+  // Fornecedores do produto, cada um com seu preço de compra e tamanho de embalagem
+  const [fornProduto,setFornProduto]=useState([{fornecedor_id:"",preco_compra:0,embalagem_qtd:1}]);
+  const abrir=(item)=>{
+    if(item){
+      setEditing(item);setForm(item);
+      const pf=(data.produto_fornecedores||[]).filter(pf=>pf.produto_id===item.id).map(pf=>({fornecedor_id:pf.fornecedor_id,preco_compra:pf.preco_compra,embalagem_qtd:pf.embalagem_qtd}));
+      setFornProduto(pf.length>0?pf:[{fornecedor_id:item.fornecedor_id||"",preco_compra:item.custo_unitario||0,embalagem_qtd:1}]);
+    } else {
+      setEditing(null);setForm(init);
+      setFornProduto([{fornecedor_id:"",preco_compra:0,embalagem_qtd:1}]);
+    }
+    setModal(true);
+  };
   const calcMarkup=()=>{const c=Number(form.custo_unitario)||0;const mk=Number(form.markup)||0;if(c>0&&mk>0){const pv=c*(1+mk/100);setForm(p=>({...p,preco_venda:pv.toFixed(2)}));}};
-  const salvar=async()=>{const rec={...form,fornecedor_id:form.fornecedor_id?parseInt(form.fornecedor_id):null,custo_unitario:Number(form.custo_unitario),preco_venda:Number(form.preco_venda),markup:Number(form.markup),estoque_atual:Number(form.estoque_atual),estoque_inicial:Number(form.estoque_atual),estoque_minimo:Number(form.estoque_minimo)};if(editing){await update("produtos",editing.id,rec);}else{await insert("produtos",rec);}setModal(false);};
+  const addForn=()=>setFornProduto(l=>[...l,{fornecedor_id:"",preco_compra:0,embalagem_qtd:1}]);
+  const updForn=(idx,k,v)=>setFornProduto(l=>l.map((it,i)=>i===idx?{...it,[k]:v}:it));
+  const rmForn=idx=>setFornProduto(l=>l.filter((_,i)=>i!==idx));
+  const salvar=async()=>{
+    const validos=fornProduto.filter(pf=>pf.fornecedor_id);
+    const principal=validos[0]?.fornecedor_id||"";
+    const rec={...form,fornecedor_id:principal?parseInt(principal):null,custo_unitario:Number(form.custo_unitario),preco_venda:Number(form.preco_venda),markup:Number(form.markup),estoque_atual:Number(form.estoque_atual),estoque_inicial:Number(form.estoque_atual),estoque_minimo:Number(form.estoque_minimo)};
+    let prodId=editing?.id;
+    if(editing){ await update("produtos",editing.id,rec); }
+    else { const novo=await insert("produtos",rec); prodId=novo?.id; }
+    if(prodId){
+      if(!DEMO_MODE) await fetch(`${SUPABASE_URL}/rest/v1/produto_fornecedores?produto_id=eq.${prodId}`,{method:"DELETE",headers:getHeaders()});
+      for(const pf of validos){
+        await insert("produto_fornecedores",{produto_id:prodId,fornecedor_id:parseInt(pf.fornecedor_id),preco_compra:Number(pf.preco_compra)||0,embalagem_qtd:Number(pf.embalagem_qtd)||1,ativo:true});
+      }
+    }
+    setModal(false);
+  };
   return(
     <div>
       <PH title="Produtos" sub={`${data.produtos.length} cadastrados`}><Btn onClick={()=>abrir(null)}><I.Plus s={12}/> Cadastrar</Btn></PH>
-      <ST cols={["Produto","Categoria","Fornecedor","Custo","Markup","P. Venda","Estoque","Status","Ações"]}
-        rows={data.produtos.map(p=>{const forn=data.fornecedores.find(f=>f.id===p.fornecedor_id);const critico=p.estoque_atual<=p.estoque_minimo;return[
+      <ST cols={["Produto","Categoria","Fornecedor(es)","Custo","Markup","P. Venda","Estoque","Status","Ações"]}
+        rows={data.produtos.map(p=>{
+          const qtdForn=(data.produto_fornecedores||[]).filter(pf=>pf.produto_id===p.id&&pf.ativo).length;
+          const forn=data.fornecedores.find(f=>f.id===p.fornecedor_id);
+          const critico=p.estoque_atual<=p.estoque_minimo;
+          return[
           <div><div style={{fontWeight:600,color:C.text,fontSize:12}}>{p.nome}</div><div style={{color:C.muted,fontSize:10}}>{p.unidade}</div></div>,
           <span style={{color:C.muted,fontSize:11}}>{p.categoria||"—"}</span>,
-          <span style={{fontSize:11}}>{forn?.nome_fantasia||"—"}</span>,
+          <span style={{fontSize:11}}>{forn?.nome_fantasia||"—"}{qtdForn>1?` +${qtdForn-1}`:""}</span>,
           <span style={{color:C.danger,fontWeight:600}}>{fmt(p.custo_unitario)}</span>,
           <span style={{color:C.info,fontSize:11}}>{fmtN(p.markup)}%</span>,
           <span style={{color:C.success,fontWeight:600}}>{fmt(p.preco_venda)}</span>,
@@ -2757,15 +2833,31 @@ function Produtos({data,insert,update,remove}) {
       {modal&&<Mod title={editing?"Editar Produto":"Novo Produto"} onClose={()=>setModal(false)} wide>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Nome do produto" value={form.nome} onChange={e=>f("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
-          <Sel label="Fornecedor" value={form.fornecedor_id||""} onChange={e=>f("fornecedor_id",e.target.value)} options={[{value:"",label:"Selecione..."}, ...data.fornecedores.map(forn=>({value:forn.id,label:forn.nome_fantasia||forn.razao_social}))]}/>
-          <Inp label="Categoria" value={form.categoria} onChange={e=>f("categoria",e.target.value)} placeholder="Injetável, Skincare, EPI..."/>
-          <Inp label="Unidade" value={form.unidade} onChange={e=>f("unidade",e.target.value)} placeholder="frasco, caixa, ml..."/>
+          <CategoriaSelect data={data} insert={insert} value={form.categoria} onChange={v=>f("categoria",v)}/>
+          <Inp label="Unidade de venda" value={form.unidade} onChange={e=>f("unidade",e.target.value)} placeholder="frasco, ml, unidade..."/>
           <Inp label="Custo unitário (R$)" type="number" value={form.custo_unitario} onChange={e=>f("custo_unitario",e.target.value)} onBlur={calcMarkup}/>
           <Inp label="Markup (%)" type="number" value={form.markup} onChange={e=>f("markup",e.target.value)} onBlur={calcMarkup}/>
           <Inp label="Preço de venda (R$)" type="number" value={form.preco_venda} onChange={e=>f("preco_venda",e.target.value)}/>
           <Inp label="Estoque atual" type="number" value={form.estoque_atual} onChange={e=>f("estoque_atual",e.target.value)}/>
           <Inp label="Estoque mínimo" type="number" value={form.estoque_minimo} onChange={e=>f("estoque_minimo",e.target.value)}/>
         </div>
+
+        <div style={{background:C.surface,borderRadius:10,padding:13,margin:"12px 0",border:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+            <span style={{color:C.text,fontSize:12,fontWeight:700}}>Fornecedores</span>
+            <Btn v="g" onClick={addForn} style={{fontSize:10,padding:"3px 9px"}}><I.Plus s={11}/> Adicionar</Btn>
+          </div>
+          <p style={{color:C.muted,fontSize:10,marginBottom:9}}>Cadastre o preço de compra e o tamanho da embalagem de cada fornecedor — na entrada de estoque você informa quantas embalagens comprou e o sistema converte pra unidade de venda.</p>
+          {fornProduto.map((pf,idx)=>(
+            <div key={idx} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:8,marginBottom:8,alignItems:"end"}}>
+              <Sel label={idx===0?"Fornecedor":""} value={pf.fornecedor_id||""} onChange={e=>updForn(idx,"fornecedor_id",e.target.value)} options={[{value:"",label:"Selecione..."}, ...data.fornecedores.map(forn=>({value:forn.id,label:forn.nome_fantasia||forn.razao_social}))]}/>
+              <Inp label={idx===0?"Preço de compra (R$)":""} type="number" value={pf.preco_compra} onChange={e=>updForn(idx,"preco_compra",e.target.value)}/>
+              <Inp label={idx===0?"Embalagem (qtd. na unid. de venda)":""} type="number" value={pf.embalagem_qtd} onChange={e=>updForn(idx,"embalagem_qtd",e.target.value)}/>
+              <button onClick={()=>rmForn(idx)} style={{background:"none",border:"none",color:C.danger,padding:"8px 4px",cursor:"pointer"}}><I.X s={14}/></button>
+            </div>
+          ))}
+        </div>
+
         <TA label="Descrição" value={form.descricao} onChange={e=>f("descricao",e.target.value)} placeholder="Descrição do produto..."/>
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <Btn v="g" onClick={()=>setModal(false)}>Cancelar</Btn>
@@ -2862,7 +2954,7 @@ function Procedimentos({data,insert,update,remove}) {
       {modal&&<Mod title={editing?"Editar Procedimento":"Novo Procedimento"} onClose={()=>setModal(false)} full>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
           <Inp label="Nome" value={form.nome} onChange={e=>ff("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
-          <Inp label="Categoria" value={form.categoria} onChange={e=>ff("categoria",e.target.value)} placeholder="Facial, Corporal, Skincare..."/>
+          <CategoriaSelect data={data} insert={insert} value={form.categoria} onChange={v=>ff("categoria",v)}/>
           <Inp label="Duração (min)" type="number" value={form.duracao_minutos} onChange={e=>ff("duracao_minutos",e.target.value)}/>
           <Inp label="Preço de venda (R$)" type="number" value={form.preco_venda} onChange={e=>ff("preco_venda",e.target.value)}/>
           <Inp label="Markup (%)" type="number" value={form.markup} onChange={e=>ff("markup",e.target.value)}/>
@@ -2953,7 +3045,10 @@ function Estoque({data,insert,update}) {
   const totalEstoque=data.produtos.reduce((s,p)=>s+(Number(p.estoque_atual)||0)*(Number(p.custo_unitario)||0),0);
 
   const salvarEntrada = async () => {
-    const itensValidos = (entrada.itens||[]).filter(i=>i.produto_id&&Number(i.quantidade)>0);
+    /* "embalagens" é quantas caixas/pacotes o usuário comprou; "embalagem_qtd" converte
+       isso pra unidade de venda (a unidade em que o estoque é de fato controlado) */
+    const itensValidos = (entrada.itens||[]).filter(i=>i.produto_id&&Number(i.embalagens)>0)
+      .map(i=>({...i, quantidade:(Number(i.embalagens)||0)*(Number(i.embalagem_qtd)||1)}));
     if(itensValidos.length===0) return;
     const totalCompra = itensValidos.reduce((s,i)=>(s+(Number(i.custo_unitario)||0)*(Number(i.quantidade)||0)),0);
     const forn = data.fornecedores.find(f=>f.id===parseInt(entrada.fornecedor_id));
@@ -3091,21 +3186,27 @@ function Estoque({data,insert,update}) {
         <div style={{background:C.surface,borderRadius:10,padding:13,marginBottom:14,border:`1px solid ${C.border}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <span style={{color:C.text,fontSize:12,fontWeight:700}}>Itens da Compra</span>
-            <Btn v="g" onClick={()=>setEntrada(en=>({...en,itens:[...(en.itens||[]),{produto_id:"",quantidade:1,custo_unitario:0,custo_total:0}]}))} style={{fontSize:11,padding:"4px 10px"}}>
+            <Btn v="g" onClick={()=>setEntrada(en=>({...en,itens:[...(en.itens||[]),{produto_id:"",embalagens:1,embalagem_qtd:1,custo_unitario:0}]}))} style={{fontSize:11,padding:"4px 10px"}}>
               <I.Plus s={11}/> Adicionar produto
             </Btn>
           </div>
 
           {(entrada.itens||[]).length===0&&<p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>Nenhum produto adicionado.</p>}
 
-          {(entrada.itens||[]).map((item,idx)=>(
-            <div key={idx} style={{display:"grid",gridTemplateColumns:"2fr 90px 120px 110px 36px",gap:8,marginBottom:8,alignItems:"end"}}>
+          {(entrada.itens||[]).map((item,idx)=>{
+            const qtdConvertida = (Number(item.embalagens)||0)*(Number(item.embalagem_qtd)||1);
+            const prodItem = data.produtos.find(p=>p.id===parseInt(item.produto_id));
+            return (
+            <div key={idx} style={{display:"grid",gridTemplateColumns:"2fr 85px 95px 100px 110px 36px",gap:8,marginBottom:8,alignItems:"end"}}>
               <div>
                 {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Produto</label>}
                 <select value={item.produto_id}
                   onChange={e=>{
                     const prod=data.produtos.find(p=>p.id===parseInt(e.target.value));
-                    setEntrada(en=>({...en,itens:en.itens.map((it,i)=>i!==idx?it:{...it,produto_id:e.target.value,custo_unitario:prod?.custo_unitario||0,custo_total:(prod?.custo_unitario||0)*(Number(it.quantidade)||1)})}));
+                    const pf=(data.produto_fornecedores||[]).find(pf=>pf.produto_id===parseInt(e.target.value)&&String(pf.fornecedor_id)===String(entrada.fornecedor_id)&&pf.ativo);
+                    const embQtd = pf?Number(pf.embalagem_qtd)||1:1;
+                    const custoUnit = pf ? (Number(pf.preco_compra)||0)/embQtd : (prod?.custo_unitario||0);
+                    setEntrada(en=>({...en,itens:en.itens.map((it,i)=>i!==idx?it:{...it,produto_id:e.target.value,embalagem_qtd:embQtd,custo_unitario:custoUnit})}));
                   }}
                   style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}>
                   <option value="">Selecione o produto...</option>
@@ -3113,21 +3214,25 @@ function Estoque({data,insert,update}) {
                 </select>
               </div>
               <div>
-                {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Qtd.</label>}
-                <input type="number" value={item.quantidade}
-                  onChange={e=>setEntrada(en=>({...en,itens:en.itens.map((it,i)=>i!==idx?it:{...it,quantidade:e.target.value,custo_total:(Number(it.custo_unitario)||0)*(Number(e.target.value)||0)})}))}
+                {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Embalagens</label>}
+                <input type="number" value={item.embalagens}
+                  onChange={e=>setEntrada(en=>({...en,itens:en.itens.map((it,i)=>i!==idx?it:{...it,embalagens:e.target.value})}))}
                   style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12,textAlign:"center"}}/>
+              </div>
+              <div>
+                {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Qtd. ({prodItem?.unidade||"unid."})</label>}
+                <div style={{background:C.surface,borderRadius:8,padding:"9px 10px",color:C.muted,fontSize:12,textAlign:"center"}}>{fmtN(qtdConvertida)}</div>
               </div>
               <div>
                 {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Custo unit. R$</label>}
                 <input type="number" value={item.custo_unitario}
-                  onChange={e=>setEntrada(en=>({...en,itens:en.itens.map((it,i)=>i!==idx?it:{...it,custo_unitario:e.target.value,custo_total:(Number(e.target.value)||0)*(Number(it.quantidade)||0)})}))}
+                  onChange={e=>setEntrada(en=>({...en,itens:en.itens.map((it,i)=>i!==idx?it:{...it,custo_unitario:e.target.value})}))}
                   style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}/>
               </div>
               <div>
                 {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Subtotal</label>}
                 <div style={{background:C.accentSoft,borderRadius:8,padding:"9px 10px",color:C.accent,fontWeight:700,fontSize:13,textAlign:"right"}}>
-                  {fmt((Number(item.custo_unitario)||0)*(Number(item.quantidade)||0))}
+                  {fmt((Number(item.custo_unitario)||0)*qtdConvertida)}
                 </div>
               </div>
               <div>
@@ -3138,11 +3243,11 @@ function Estoque({data,insert,update}) {
                 </button>
               </div>
             </div>
-          ))}
+          );})}
 
           {(entrada.itens||[]).length>0&&<div style={{borderTop:`1px solid ${C.border}`,marginTop:10,paddingTop:10,display:"flex",justifyContent:"flex-end",gap:16}}>
             <span style={{color:C.muted,fontSize:12}}>Total da compra:</span>
-            <span style={{color:C.accent,fontWeight:700,fontSize:15}}>{fmt((entrada.itens||[]).reduce((s,i)=>s+(Number(i.custo_unitario)||0)*(Number(i.quantidade)||0),0))}</span>
+            <span style={{color:C.accent,fontWeight:700,fontSize:15}}>{fmt((entrada.itens||[]).reduce((s,i)=>s+(Number(i.custo_unitario)||0)*((Number(i.embalagens)||0)*(Number(i.embalagem_qtd)||1)),0))}</span>
           </div>}
         </div>
 
@@ -3150,7 +3255,7 @@ function Estoque({data,insert,update}) {
 
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <Btn v="g" onClick={()=>setEntradaModal(false)}>Cancelar</Btn>
-          <Btn onClick={salvarEntrada} disabled={!(entrada.itens||[]).some(i=>i.produto_id&&i.quantidade)}>
+          <Btn onClick={salvarEntrada} disabled={!(entrada.itens||[]).some(i=>i.produto_id&&i.embalagens)}>
             <I.Check s={12}/> Confirmar Entrada
           </Btn>
         </div>
