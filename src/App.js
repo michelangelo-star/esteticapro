@@ -5247,9 +5247,24 @@ function Salas({data, insert, update}) {
     });
   };
 
+  /* Antes só atualizava o status do próprio registro de aluguel — nunca gerava a conta a
+     receber nem a movimentação. Por isso a receita de aluguel nunca aparecia no Extrato
+     por Conta nem no DRE (a categoria "Aluguel de Salas" já existe e já está linkada ao
+     DRE desde a padronização; faltava só este insert). */
   const confirmarBaixaPagamento = async () => {
     if(!baixaConta || !pagModal) return;
-    await update("aluguel_pagamentos", pagModal.id, {status:"quitado", data_pagamento:today(), conta_id:parseInt(baixaConta)});
+    const contaDestino = parseInt(baixaConta);
+    const sala = data.salas.find(s=>s.id===pagModal.sala_id);
+    const catAluguel = (data.categorias_financeiras||[]).find(c=>c.nome==="Aluguel de Salas"&&c.tipo==="receita");
+    await update("aluguel_pagamentos", pagModal.id, {status:"quitado", data_pagamento:today(), conta_id:contaDestino});
+    await insert("contas_receber",{
+      paciente:sala?.locatario_nome||sala?.nome||"", atendimento_id:null,
+      descricao:`Aluguel — ${sala?.nome||""} (${pagModal.referencia})`, valor:Number(pagModal.valor)||0,
+      vencimento:today(), categoria_id:catAluguel?.id||null,
+      data_lancamento:today(), data_competencia:pagModal.vencimento||today(),
+      status:"quitado", conta_id:contaDestino, data_baixa:today(),
+    });
+    await insert("movimentacoes",{conta_id:contaDestino, tipo:"entrada", origem:"aluguel", origem_id:pagModal.id, descricao:`Aluguel — ${sala?.nome||""}`, valor:Number(pagModal.valor)||0, data:today()});
     setPagModal(null); setBaixaConta("");
   };
 
