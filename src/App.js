@@ -378,30 +378,21 @@ const addDias = (dataISO, dias) => { const d=new Date(dataISO+"T12:00:00"); d.se
 const addMeses = (dataISO, meses) => { const d=new Date(dataISO+"T12:00:00"); d.setMonth(d.getMonth()+(Number(meses)||0)); return d.toISOString().split("T")[0]; };
 const gerarUUID = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-/* Envio de WhatsApp via Z-API ou Wafly — mesmo path de endpoint nos dois
-   (instances/{id}/token/{token}/send-text), mas domínio base diferente: Wafly serve a
-   API sob o próprio domínio (wafly.com.br/api-bridge-whats, não um subdomínio api.*).
-   O OpenAPI público deles não documenta isso, mas testando contra o servidor real a
-   Wafly EXIGE também um header "Client-Token" (por conta, não por instância) — sem ele
-   toda chamada volta 400 "Client-Token not found in the request header".
-   Usado tanto pelos lembretes de agendamento (Cadastros) quanto pelo convite de
-   anamnese digital (Agendamentos). */
-const enviarWhatsAppGenerico = async (clinicaConfig, telefone, mensagem) => {
-  if(!clinicaConfig?.whatsapp_ativo) return false;
-  const ehWafly = clinicaConfig.whatsapp_provider==="wafly";
-  const instance = ehWafly ? clinicaConfig.wafly_instance : clinicaConfig.zapi_instance;
-  const token = ehWafly ? clinicaConfig.wafly_token : clinicaConfig.zapi_token;
-  const baseUrl = ehWafly ? "https://wafly.com.br/api-bridge-whats" : "https://api.z-api.io";
-  if(!instance || !token) return false;
-  if(ehWafly && !clinicaConfig.wafly_client_token) return false;
+/* Envio de WhatsApp — sempre via Edge Function (enviar-whatsapp), nunca direto do
+   navegador. A Wafly não libera CORS pro header "Client-Token" que ela exige (só aceita
+   chamada servidor-a-servidor); chamar direto do navegador falha com erro de CORS mesmo
+   com a credencial certa. Rodar num Edge Function evita isso (é uma chamada servidor-
+   a-servidor de verdade) e, de quebra, os tokens de Z-API/Wafly da clínica nunca
+   precisam trafegar pro navegador do usuário. Usado tanto pelos lembretes de
+   agendamento (Cadastros) quanto pelo convite de anamnese digital (Agendamentos). */
+const enviarWhatsAppGenerico = async (telefone, mensagem) => {
   try {
     const numero = (telefone||"").replace(/\D/g,"");
     if(!numero) return false;
-    const headers = {"Content-Type":"application/json"};
-    if(ehWafly) headers["Client-Token"] = clinicaConfig.wafly_client_token;
-    const r = await fetch(`${baseUrl}/instances/${instance}/token/${token}/send-text`,{
-      method:"POST", headers,
-      body:JSON.stringify({phone:`55${numero}`, message:mensagem}),
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/enviar-whatsapp`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":SUPABASE_KEY,"Authorization":`Bearer ${_sessionToken}`},
+      body:JSON.stringify({telefone:numero, mensagem}),
     });
     return r.ok;
   } catch(e){ return false; }
@@ -1976,9 +1967,6 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
     if(!telefone){ alert("Este paciente não tem telefone cadastrado."); return; }
     setEnviandoAnamnese(ag.id);
     try{
-      const clinicaRows = await sb.get("clinicas", `id=eq.${user.id}`);
-      const clinicaConfig = clinicaRows?.[0];
-      if(!clinicaConfig?.whatsapp_ativo){ alert('WhatsApp não configurado — vá em Cadastros → Lembretes WhatsApp antes de enviar fichas de anamnese.'); return; }
       const segmento = data.empresa?.segmento_id ? (data.segmentos_empresa||[]).find(s=>s.id===data.empresa.segmento_id)?.nome : "";
       const novaAnamnese = await insert("anamneses",{
         paciente_id:pac.id, status:"aguardando_telefone",
@@ -1987,7 +1975,7 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
       if(!novaAnamnese?.token){ alert("Não foi possível criar a ficha de anamnese."); return; }
       const link = `${window.location.origin}${window.location.pathname}?ficha=${novaAnamnese.token}`;
       const msg = `Olá ${pac.nome}! Por favor preencha sua ficha de anamnese antes do atendimento — é rápido e seguro: ${link}`;
-      const ok = await enviarWhatsAppGenerico(clinicaConfig, telefone, msg);
+      const ok = await enviarWhatsAppGenerico(telefone, msg);
       alert(ok?"Link de anamnese enviado por WhatsApp!":"Não foi possível enviar via WhatsApp. Verifique a configuração em Cadastros.");
     } finally {
       setEnviandoAnamnese(null);
@@ -5409,7 +5397,7 @@ function Cadastros({data,insert,update,remove,user}) {
       return diffMin>0 && diffMin<=60;
     });
 
-    const enviarWhatsApp = (telefone, mensagem) => enviarWhatsAppGenerico(clinicaConfig, telefone, mensagem);
+    const enviarWhatsApp = (telefone, mensagem) => enviarWhatsAppGenerico(telefone, mensagem);
 
     if(clinicaConfig.lembrete_1dia_ativo){
       for(const ag of pendentes1dia){
