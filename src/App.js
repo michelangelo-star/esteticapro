@@ -3605,6 +3605,11 @@ function Financeiro({data,insert,update,user}) {
 
   // ── FLUXO DE CAIXA: agrupa movimentações por dia, com saldo acumulado ──
   const saldoInicialTotal = data.contas_bancarias.reduce((s,c)=>s+(Number(c.saldo_inicial)||0),0);
+  /* Saldo inicial do período filtrado = saldo inicial das contas + tudo que aconteceu ANTES do "De" —
+     é o que falta somar pro "Saldo do Período" (só entradas-saídas do recorte) reconciliar com o
+     "Extrato por Conta" (saldo total das contas, sem filtro nenhum). */
+  const antesDoPeriodo = filtFluxo.de ? data.movimentacoes.filter(m=>m.data<filtFluxo.de) : [];
+  const saldoInicialPeriodo = saldoInicialTotal + antesDoPeriodo.reduce((s,m)=>s+(m.tipo==="entrada"?Number(m.valor):-Number(m.valor)),0);
   const fluxoDados = useMemo(()=>{
     let ms=[...data.movimentacoes];
     if(filtFluxo.de) ms=ms.filter(m=>m.data>=filtFluxo.de);
@@ -3615,12 +3620,10 @@ function Financeiro({data,insert,update,user}) {
       if(m.tipo==="entrada") porDia[m.data].entradas+=Number(m.valor)||0;
       else porDia[m.data].saidas+=Number(m.valor)||0;
     });
-    /* Saldo acumulado parte do saldo inicial das contas + tudo que aconteceu ANTES do período filtrado */
-    const antesDoPeriodo = filtFluxo.de ? data.movimentacoes.filter(m=>m.data<filtFluxo.de) : [];
-    let acumulado = saldoInicialTotal + antesDoPeriodo.reduce((s,m)=>s+(m.tipo==="entrada"?Number(m.valor):-Number(m.valor)),0);
+    let acumulado = saldoInicialPeriodo;
     const dias = Object.values(porDia).sort((a,b)=>a.data.localeCompare(b.data));
     return dias.map(d=>{ acumulado += d.entradas - d.saidas; return {...d, saldoAcumulado:acumulado}; });
-  },[data.movimentacoes,filtFluxo,saldoInicialTotal]);
+  },[data.movimentacoes,filtFluxo,saldoInicialPeriodo]);
   const totalEntradasFluxo = fluxoDados.reduce((s,d)=>s+d.entradas,0);
   const totalSaidasFluxo = fluxoDados.reduce((s,d)=>s+d.saidas,0);
 
@@ -3877,9 +3880,10 @@ function Financeiro({data,insert,update,user}) {
       {/* FLUXO DE CAIXA */}
       {aba==="fluxo"&&<>
         <div className="stat-row" style={{display:"flex",gap:9,marginBottom:14,flexWrap:"wrap"}}>
+          <SC label="Saldo Inicial" value={fmt(saldoInicialPeriodo)} Icon={I.Bank} color={C.info} sub={filtFluxo.de?`Até ${fmtDate(addDias(filtFluxo.de,-1))}`:"Sem filtro de data"}/>
           <SC label="Total Entradas" value={fmt(totalEntradasFluxo)} Icon={I.Up} color={C.success}/>
           <SC label="Total Saídas" value={fmt(totalSaidasFluxo)} Icon={I.Dollar} color={C.danger}/>
-          <SC label="Saldo do Período" value={fmt(totalEntradasFluxo-totalSaidasFluxo)} Icon={I.Sparkle} color={totalEntradasFluxo-totalSaidasFluxo>=0?C.success:C.danger}/>
+          <SC label="Saldo Final do Período" value={fmt(saldoInicialPeriodo+totalEntradasFluxo-totalSaidasFluxo)} Icon={I.Sparkle} color={saldoInicialPeriodo+totalEntradasFluxo-totalSaidasFluxo>=0?C.success:C.danger} sub="Inicial + entradas − saídas"/>
         </div>
         <FilterBar filters={[{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"}]} values={filtFluxo} onChange={(k,v)=>setFiltFluxo(p=>({...p,[k]:v}))}/>
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:16}}>
