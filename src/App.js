@@ -4588,6 +4588,15 @@ function Relatorios({data, insert}) {
     return{...p,total_real:total,ultima_visita_real:ultima,dias_sem_vir:diasSemVir,freq,segmento};
   }).sort((a,b)=>b.total_real-a.total_real);
 
+  // Atendimentos em rascunho (nunca fechados) — potencial de campanha de fechamento
+  const rascunhosAbertos = useMemo(()=>{
+    return data.atendimentos.filter(a=>a.status==="aberto").map(a=>{
+      const pac = data.pacientes.find(p=>p.id===a.paciente_id||p.nome===a.paciente);
+      const prof = data.profissionais.find(p=>p.id===a.profissional_id);
+      return {...a, _whatsapp:pac?.whatsapp||pac?.telefone||"", _profNome:prof?.nome||"—"};
+    }).sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+  },[data.atendimentos,data.pacientes,data.profissionais]);
+
   // Segmentação
   const segs = {
     vip: crmPacientes.filter(p=>p.segmento==="vip"),
@@ -4799,6 +4808,25 @@ function Relatorios({data, insert}) {
               <a href={`https://wa.me/55${(p.whatsapp||p.telefone||"").replace(/\D/g,"")}`} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:4,background:C.success+"20",color:C.success,padding:"3px 9px",borderRadius:7,fontSize:10,fontWeight:600,textDecoration:"none"}}><I.Whatsapp c={C.success} s={11}/> WhatsApp</a>
             ];
           })}
+        />
+
+        <div style={{display:"flex",alignItems:"center",gap:8,margin:"22px 0 10px"}}>
+          <I.Warn c={C.warn} s={14}/>
+          <h4 style={{color:C.text,fontSize:12,fontWeight:700}}>Rascunhos Não Fechados ({rascunhosAbertos.length})</h4>
+        </div>
+        <p style={{color:C.muted,fontSize:11,marginBottom:11}}>Atendimentos que ficaram em "Em Atendimento" e nunca foram fechados — bons candidatos pra uma campanha de fechamento.</p>
+        <ST cols={["Paciente","Serviço","Profissional","Data","Valor","Contato"]}
+          rows={rascunhosAbertos.map(a=>[
+            <span style={{fontWeight:600,fontSize:12}}>{a.paciente}</span>,
+            <span style={{color:C.muted,fontSize:11}}>{a.servico}</span>,
+            <span style={{fontSize:11}}>{a._profNome}</span>,
+            <span style={{fontSize:11}}>{fmtDate(a.data)}</span>,
+            <span style={{color:C.accent,fontWeight:700}}>{fmt(a.valor_final||a.valor)}</span>,
+            a._whatsapp
+              ? <a href={`https://wa.me/55${a._whatsapp.replace(/\D/g,"")}`} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:4,background:C.success+"20",color:C.success,padding:"3px 9px",borderRadius:7,fontSize:10,fontWeight:600,textDecoration:"none"}}><I.Whatsapp c={C.success} s={11}/> WhatsApp</a>
+              : <span style={{color:C.muted,fontSize:11}}>—</span>,
+          ])}
+          empty="Nenhum rascunho em aberto — tudo fechado ou recebido."
         />
       </div>}
 
