@@ -86,10 +86,7 @@ const sb = {
     } catch (e) { return { erro: "Erro de conexão com o servidor." }; }
   },
 
-  /* Cadastro de novo usuário. Se a confirmação de e-mail estiver desativada no projeto,
-     o Supabase já retorna uma sessão ativa — nesse caso, atualiza o token para que os
-     próximos requests (ex: criar o registro do afiliado) sejam feitos autenticados,
-     e não com a anon key (o que faria a RLS rejeitar o insert). */
+  /* Cadastro de novo usuário */
   async signup(email, senha) {
     try {
       const r = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
@@ -99,64 +96,8 @@ const sb = {
       });
       const dados = await r.json();
       if (dados.error) return { erro: dados.msg || dados.error };
-      if (dados.access_token) _sessionToken = dados.access_token;
-      return { ok: true, userId: dados.user?.id || dados.id };
+      return { ok: true, userId: dados.user?.id };
     } catch (e) { return { erro: "Erro de conexão." }; }
-  },
-
-  /* Envia e-mail de recuperação de senha */
-  async recover(email) {
-    try {
-      const r = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY },
-        body: JSON.stringify({ email, redirect_to: window.location.origin + window.location.pathname }),
-      });
-      if (!r.ok) { const d = await r.json().catch(()=>({})); return { erro: d.msg || d.error_description || "Não foi possível enviar o e-mail." }; }
-      return { ok: true };
-    } catch (e) { return { erro: "Erro de conexão." }; }
-  },
-
-  /* Define nova senha usando o token recebido por e-mail (fluxo de recuperação) */
-  async updatePassword(novaSenha, accessToken) {
-    try {
-      const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${accessToken}` },
-        body: JSON.stringify({ password: novaSenha }),
-      });
-      const dados = await r.json();
-      if (!r.ok) return { erro: dados.msg || dados.error_description || "Não foi possível redefinir a senha." };
-      return { ok: true };
-    } catch (e) { return { erro: "Erro de conexão." }; }
-  },
-
-  /* Assinatura paga — cobra no Asaas via Edge Function e só ativa a conta se o pagamento for confirmado */
-  async checkout(payload) {
-    try {
-      const r = await fetch(`${SUPABASE_URL}/functions/v1/asaas-checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify(payload),
-      });
-      const dados = await r.json();
-      if (!r.ok || dados.erro) return { erro: dados.erro || "Não foi possível processar sua assinatura." };
-      return { ok: true };
-    } catch (e) { return { erro: "Erro de conexão com o servidor de pagamentos." }; }
-  },
-
-  /* Cadastro de afiliado — cria conta já confirmada via Edge Function (o projeto exige confirmação de e-mail) */
-  async cadastrarAfiliado(payload) {
-    try {
-      const r = await fetch(`${SUPABASE_URL}/functions/v1/afiliado-signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify(payload),
-      });
-      const dados = await r.json();
-      if (!r.ok || dados.erro) return { erro: dados.erro || "Não foi possível concluir o cadastro." };
-      return { ok: true, codigo: dados.codigo };
-    } catch (e) { return { erro: "Erro de conexão com o servidor." }; }
   },
 };
 
@@ -241,38 +182,12 @@ const mkDemo = () => ({
     {id:1,nome:"Materiais Botox",valor:1200,data:"2025-05-10",categoria:"Insumos"},
     {id:2,nome:"Luvas e EPIs",valor:180,data:"2025-05-12",categoria:"Insumos"},
   ],
-  contas_dre:[
-    {id:1,nome:"Receita de Serviços (Atendimentos)",tipo:"receita",grupo:"receita_bruta",ordem:1,ativo:true},
-    {id:2,nome:"Receita de Aluguel de Salas",tipo:"receita",grupo:"receita_bruta",ordem:2,ativo:true},
-    {id:3,nome:"Outras Receitas Operacionais",tipo:"receita",grupo:"receita_bruta",ordem:3,ativo:true},
-    {id:4,nome:"Impostos sobre Serviços (ISS/Simples)",tipo:"despesa",grupo:"deducoes",ordem:1,ativo:true},
-    {id:5,nome:"Descontos e Devoluções",tipo:"despesa",grupo:"deducoes",ordem:2,ativo:true},
-    {id:6,nome:"Custo dos Serviços Prestados",tipo:"despesa",grupo:"custos",ordem:1,ativo:true},
-    {id:7,nome:"Despesas com Pessoal",tipo:"despesa",grupo:"despesas_operacionais",ordem:1,ativo:true},
-    {id:8,nome:"Despesas Administrativas",tipo:"despesa",grupo:"despesas_operacionais",ordem:2,ativo:true},
-    {id:9,nome:"Despesas Comerciais/Marketing",tipo:"despesa",grupo:"despesas_operacionais",ordem:3,ativo:true},
-    {id:10,nome:"Despesas Gerais",tipo:"despesa",grupo:"despesas_operacionais",ordem:4,ativo:true},
-    {id:11,nome:"Receitas Financeiras",tipo:"receita",grupo:"receitas_financeiras",ordem:1,ativo:true},
-    {id:12,nome:"Despesas Financeiras e Taxas Bancárias",tipo:"despesa",grupo:"despesas_financeiras",ordem:1,ativo:true},
-    {id:13,nome:"IR/CSLL",tipo:"despesa",grupo:"impostos_lucro",ordem:1,ativo:true},
-  ],
-  categorias_financeiras:[
-    {id:1,nome:"Atendimentos",tipo:"receita",ativo:true,conta_dre_id:1},
-    {id:2,nome:"Aluguel de Salas",tipo:"receita",ativo:true,conta_dre_id:2},
-    {id:3,nome:"Outras Receitas",tipo:"receita",ativo:true,conta_dre_id:3},
-    {id:4,nome:"Aluguel/Condomínio",tipo:"despesa",ativo:true,conta_dre_id:8},
-    {id:5,nome:"Salários",tipo:"despesa",ativo:true,conta_dre_id:7},
-    {id:6,nome:"Marketing",tipo:"despesa",ativo:true,conta_dre_id:9},
-    {id:7,nome:"Impostos e Taxas",tipo:"despesa",ativo:true,conta_dre_id:4},
-    {id:8,nome:"Insumos e Produtos",tipo:"despesa",ativo:true,conta_dre_id:null},
-    {id:9,nome:"Outras Despesas",tipo:"despesa",ativo:true,conta_dre_id:10},
-  ],
   contas_receber:[
-    {id:1,atendimento_id:4,paciente_id:1,paciente:"Ana Paula Silva",descricao:"Drenagem Linfática",valor:180,categoria_id:1,vencimento:"2025-05-30",data_lancamento:"2025-05-23",data_competencia:"2025-05-23",status:"aberto",forma_pagamento:"PIX",conta_id:null},
+    {id:1,atendimento_id:4,paciente_id:1,paciente:"Ana Paula Silva",descricao:"Drenagem Linfática",valor:180,vencimento:"2025-05-30",status:"aberto",forma_pagamento:"PIX",conta_id:null},
   ],
   contas_pagar:[
-    {id:1,fornecedor:"DermaSupply",descricao:"Pedido #1204 — insumos",categoria:"Insumos",categoria_id:8,recorrente:false,valor:2800,vencimento:"2025-06-05",data_lancamento:"2025-05-28",data_competencia:"2025-06-05",status:"aberto",conta_id:null},
-    {id:2,fornecedor:"",descricao:"Aluguel Junho",categoria:"Imóvel",categoria_id:4,recorrente:true,valor:6000,vencimento:"2025-06-05",data_lancamento:"2025-05-28",data_competencia:"2025-06-05",status:"aberto",conta_id:null},
+    {id:1,fornecedor:"DermaSupply",descricao:"Pedido #1204 — insumos",categoria:"Insumos",valor:2800,vencimento:"2025-06-05",status:"aberto",conta_id:null},
+    {id:2,fornecedor:"",descricao:"Aluguel Junho",categoria:"Imóvel",valor:6000,vencimento:"2025-06-05",status:"aberto",conta_id:null},
   ],
   movimentacoes:[
     {id:1,conta_id:1,tipo:"entrada",origem:"atendimento",descricao:"Recebimento — Carla Mendonça",valor:1200,data:"2025-05-22"},
@@ -302,15 +217,6 @@ const mkDemo = () => ({
   aluguel_pagamentos:[
     {id:1,sala_id:1,referencia:"Maio/2025",valor:1500,vencimento:"2025-05-05",status:"quitado",data_pagamento:"2025-05-04",conta_id:2},
   ],
-  horarios_profissional:[
-    /* Dra. Camila Rocha (id:1) — seg a sex, 9h-18h */
-    ...[1,2,3,4,5].map(dia=>({id:dia,profissional_id:1,dia_semana:dia,hora_inicio:"09:00",hora_fim:"18:00",ativo:true})),
-    /* Dra. Fernanda Lima (id:2) — seg a sáb, 8h-17h */
-    ...[1,2,3,4,5,6].map(dia=>({id:10+dia,profissional_id:2,dia_semana:dia,hora_inicio:"08:00",hora_fim:"17:00",ativo:true})),
-    /* Vitória Mendes (id:3) — ter a sáb, 10h-19h */
-    ...[2,3,4,5,6].map(dia=>({id:20+dia,profissional_id:3,dia_semana:dia,hora_inicio:"10:00",hora_fim:"19:00",ativo:true})),
-  ],
-  bloqueios_agenda:[],
   compra_itens:[
     {id:1,conta_pagar_id:1,produto_id:1,quantidade:5,custo_unitario:800,custo_total:4000,fornecedor_id:1,data:"2025-05-01"},
     {id:2,conta_pagar_id:1,produto_id:2,quantidade:8,custo_unitario:250,custo_total:2000,fornecedor_id:1,data:"2025-05-01"},
@@ -321,27 +227,12 @@ const mkDemo = () => ({
 const fmt = v => (Number(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const fmtN = v => (Number(v)||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const today = () => new Date().toISOString().split("T")[0];
-const mesAtualRange = () => { const h=new Date(); const de=new Date(h.getFullYear(),h.getMonth(),1); const ate=new Date(h.getFullYear(),h.getMonth()+1,0); return {de:de.toISOString().split("T")[0], ate:ate.toISOString().split("T")[0]}; };
-
-/* Estrutura padrão de DRE gerencial — os 7 grupos são fixos (formato de mercado);
-   as contas dentro de cada grupo são livres/cadastráveis pelo usuário.        */
-const GRUPOS_DRE = [
-  {id:"receita_bruta",         label:"Receita Operacional Bruta",       tipo:"receita"},
-  {id:"deducoes",               label:"Deduções da Receita",             tipo:"despesa"},
-  {id:"custos",                 label:"Custo dos Serviços Prestados",    tipo:"despesa"},
-  {id:"despesas_operacionais",  label:"Despesas Operacionais",           tipo:"despesa"},
-  {id:"receitas_financeiras",   label:"Receitas Financeiras",            tipo:"receita"},
-  {id:"despesas_financeiras",   label:"Despesas Financeiras",            tipo:"despesa"},
-  {id:"impostos_lucro",         label:"Impostos sobre o Lucro (IR/CSLL)",tipo:"despesa"},
-];
-const grupoDRE = (id) => GRUPOS_DRE.find(g=>g.id===id);
 const fmtDate = d => d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"-";
 const _fmtDateISO = d => { if(!d)return""; const p=d.split("/"); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:d; }; // eslint-disable-line
 const maskCPF = v => v.replace(/\D/g,"").slice(0,11).replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d{1,2})$/,"$1-$2");
 const maskFone = v => v.replace(/\D/g,"").slice(0,11).replace(/(\d{2})(\d{5})(\d)/,"($1) $2-$3");
 const maskCNPJ = v => v.replace(/\D/g,"").slice(0,14).replace(/(\d{2})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1/$2").replace(/(\d{4})(\d{1,2})$/,"$1-$2");
 const maskCEP = v => v.replace(/\D/g,"").slice(0,8).replace(/(\d{5})(\d)/,"$1-$2");
-const maskCpfCnpj = v => v.replace(/\D/g,"").length>11 ? maskCNPJ(v) : maskCPF(v);
 
 
 /* ─── ÍCONES ─────────────────────────────────────────────────── */
@@ -385,7 +276,7 @@ const I = {
   Edit:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
   Lock:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
   Out:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
-  Arrow:({c="currentColor",s=16,style})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" style={style}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
+  Arrow:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
   Shield:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   Star:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill={c} stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
   Zap:({c="currentColor",s=16})=><svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
@@ -691,10 +582,10 @@ function useData(clinicaId) {
         procedimento_insumos, formas_pagamento, contas_bancarias,
         pacientes, anamneses, agendamentos, atendimentos,
         despesas_fixas, despesas_variaveis,
-        contas_receber, contas_pagar, categorias_financeiras, contas_dre,
+        contas_receber, contas_pagar,
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
-        salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
+        salas, aluguel_pagamentos,
       ] = await Promise.all([
         sb.get("profissionais",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("fornecedores",        `clinica_id=eq.${cid}&ativo=eq.true`),
@@ -711,8 +602,6 @@ function useData(clinicaId) {
         sb.get("despesas_variaveis",  `clinica_id=eq.${cid}`),
         sb.get("contas_receber",      `clinica_id=eq.${cid}&order=vencimento.asc`),
         sb.get("contas_pagar",        `clinica_id=eq.${cid}&order=vencimento.asc`),
-        sb.get("categorias_financeiras",`clinica_id=eq.${cid}&order=nome.asc`),
-        sb.get("contas_dre",          `clinica_id=eq.${cid}&order=ordem.asc`),
         sb.get("movimentacoes",       `clinica_id=eq.${cid}&order=data.desc`),
         sb.get("estoque_movimentacoes",`clinica_id=eq.${cid}&order=data.desc`),
         sb.get("campanhas",           `clinica_id=eq.${cid}&order=created_at.desc`),
@@ -722,8 +611,6 @@ function useData(clinicaId) {
         sb.get("caixa_diario",        `clinica_id=eq.${cid}&order=data.desc`),
         sb.get("salas",               `clinica_id=eq.${cid}`),
         sb.get("aluguel_pagamentos",  `clinica_id=eq.${cid}&order=vencimento.desc`),
-        sb.get("horarios_profissional",`clinica_id=eq.${cid}`),
-        sb.get("bloqueios_agenda",    `clinica_id=eq.${cid}&order=data_inicio.desc`),
       ]);
 
       setData({
@@ -731,10 +618,10 @@ function useData(clinicaId) {
         procedimento_insumos, formas_pagamento, contas_bancarias,
         pacientes, anamneses, agendamentos, atendimentos,
         despesas_fixas, despesas_variaveis,
-        contas_receber, contas_pagar, categorias_financeiras, contas_dre,
+        contas_receber, contas_pagar,
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
-        salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
+        salas, aluguel_pagamentos,
       });
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
@@ -761,7 +648,9 @@ function useData(clinicaId) {
 
   /* Insere um registro — injeta clinica_id automaticamente */
   const insert = async (tabela, registro) => {
-    const comClinica = { ...registro, clinica_id: clinicaId };
+    /* Tabelas que não têm clinica_id (tabelas de join simples) */
+    const semClinica = ["atendimento_itens","compra_itens"];
+    const comClinica = semClinica.includes(tabela) ? registro : { ...registro, clinica_id: clinicaId };
 
     if (DEMO_MODE) {
       const novo = { ...comClinica, id: Date.now() };
@@ -769,11 +658,6 @@ function useData(clinicaId) {
       return novo;
     }
     const criado = await sb.post(tabela, comClinica);
-    if (!criado) {
-      /* Grava falhou de verdade no Supabase — avisa quem chamou em vez de
-         fingir sucesso. Detalhe do erro real já foi logado por sb.post no console. */
-      throw new Error(`Não foi possível salvar em "${tabela}". Verifique o Console (F12) para o erro detalhado do Supabase.`);
-    }
     load();
     return criado;
   };
@@ -989,21 +873,6 @@ function LoginModal({onClose, onLogin, onGoSignup}) {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState("");
   const [shake, setShake] = useState(false);
-  const [modo, setModo] = useState("login"); // 'login' | 'recuperar'
-  const [recEnviado, setRecEnviado] = useState(false);
-
-  const doRecuperar = async () => {
-    if (!email) { setErro("Informe seu e-mail."); return; }
-    setLoading(true); setErro("");
-    if (DEMO_MODE) {
-      await new Promise(r => setTimeout(r, 600));
-      setLoading(false); setRecEnviado(true); return;
-    }
-    const res = await sb.recover(email);
-    setLoading(false);
-    if (res.erro) { setErro(res.erro); return; }
-    setRecEnviado(true);
-  };
 
   const doLogin = async () => {
     if (!email || !senha) { setErro("Preencha e-mail e senha."); return; }
@@ -1035,21 +904,6 @@ function LoginModal({onClose, onLogin, onGoSignup}) {
         return;
       }
     } catch(e) { /* tabela pode não existir ainda em instalações antigas — segue fluxo normal */ }
-
-    /* Verifica se é uma afiliada */
-    try {
-      const afiliadoCheck = await sb.get("afiliados", `auth_user_id=eq.${auth.userId}`);
-      if (afiliadoCheck?.[0]) {
-        const af = afiliadoCheck[0];
-        if (af.status === "descredenciado") {
-          setErro("Seu acesso ao Programa de Afiliados foi encerrado. Entre em contato com o suporte.");
-          setLoading(false);
-          return;
-        }
-        onLogin({ isAfiliado:true, afiliadoId:af.id, email:auth.email||email, nome:af.nome_completo, codigo:af.codigo_afiliado, token:auth.token });
-        return;
-      }
-    } catch(e) { /* segue fluxo normal se a tabela não existir */ }
 
     /* Busca o vínculo do usuário autenticado com a clínica e seu papel (role) */
     const vinculos = await sb.get("usuarios_clinica", `auth_user_id=eq.${auth.userId}&ativo=eq.true`);
@@ -1106,7 +960,6 @@ function LoginModal({onClose, onLogin, onGoSignup}) {
             </div>
           )}
 
-          {modo==="login" ? <>
           <div style={{marginBottom:12}}>
             <label style={{display:"block",color:T.mutedLt,fontSize:10,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>E-mail</label>
             <input type="email" placeholder="seu@email.com" value={email}
@@ -1115,7 +968,7 @@ function LoginModal({onClose, onLogin, onGoSignup}) {
               style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:9,padding:"10px 12px",color:T.text,fontSize:14}}/>
           </div>
 
-          <div style={{marginBottom:10}}>
+          <div style={{marginBottom:18}}>
             <label style={{display:"block",color:T.mutedLt,fontSize:10,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Senha</label>
             <div style={{position:"relative"}}>
               <input type={show?"text":"password"} placeholder="••••••••" value={senha}
@@ -1128,10 +981,6 @@ function LoginModal({onClose, onLogin, onGoSignup}) {
             </div>
           </div>
 
-          <div style={{textAlign:"right",marginBottom:18}}>
-            <button onClick={()=>{setModo("recuperar");setErro("");setRecEnviado(false);}} style={{background:"none",border:"none",color:T.muted,fontSize:11,cursor:"pointer"}}>Esqueci minha senha</button>
-          </div>
-
           <button className="gb gl" onClick={doLogin} disabled={loading}
             style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer"}}>
             {loading ? <><Spin c="#FFFFFF"/>Verificando...</> : "Entrar no sistema →"}
@@ -1141,97 +990,10 @@ function LoginModal({onClose, onLogin, onGoSignup}) {
             <span style={{color:T.muted,fontSize:12}}>Não tem conta? </span>
             <button onClick={onGoSignup} style={{background:"none",border:"none",color:T.gold,fontSize:12,fontWeight:600,cursor:"pointer"}}>Assinar agora</button>
           </div>
-          </> : (
-          recEnviado ? <>
-            <div style={{textAlign:"center",padding:"10px 0 4px"}}>
-              <div style={{width:48,height:48,borderRadius:"50%",background:`${T.success}18`,border:`1.5px solid ${T.success}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}><I.Check c={T.success} s={22}/></div>
-              <div style={{color:T.text,fontSize:13,lineHeight:1.6,marginBottom:16}}>Se houver uma conta cadastrada com o e-mail <strong>{email}</strong>, enviamos um link para redefinir sua senha.</div>
-              <button onClick={()=>{setModo("login");setRecEnviado(false);}} style={{background:"none",border:"none",color:T.gold,fontSize:12,fontWeight:600,cursor:"pointer"}}>← Voltar para o login</button>
-            </div>
-          </> : <>
-            <p style={{color:T.mutedLt,fontSize:12,lineHeight:1.5,marginBottom:14}}>Informe o e-mail da sua conta. Vamos enviar um link para você criar uma nova senha.</p>
-            <div style={{marginBottom:18}}>
-              <label style={{display:"block",color:T.mutedLt,fontSize:10,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>E-mail</label>
-              <input type="email" placeholder="seu@email.com" value={email}
-                onChange={e=>setEmail(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&doRecuperar()}
-                style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:9,padding:"10px 12px",color:T.text,fontSize:14}}/>
-            </div>
-            <button className="gb gl" onClick={doRecuperar} disabled={loading}
-              style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer"}}>
-              {loading ? <><Spin c="#FFFFFF"/>Enviando...</> : "Enviar link de recuperação"}
-            </button>
-            <div style={{textAlign:"center",marginTop:14}}>
-              <button onClick={()=>{setModo("login");setErro("");}} style={{background:"none",border:"none",color:T.muted,fontSize:12,cursor:"pointer"}}>← Voltar para o login</button>
-            </div>
-          </>
-          )}
         </div>
 
         <div style={{padding:"0 24px 16px",textAlign:"center"}}>
           <button onClick={onClose} style={{background:"none",border:"none",color:T.muted,fontSize:12,cursor:"pointer"}}>← Voltar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* Tela exibida quando o usuário volta do e-mail de recuperação de senha
-   (URL contém #access_token=...&type=recovery, enviado pelo Supabase Auth). */
-function ResetPasswordModal({accessToken, onDone}) {
-  const [senha, setSenha] = useState("");
-  const [confirmar, setConfirmar] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [erro, setErro] = useState("");
-  const [ok, setOk] = useState(false);
-
-  const salvar = async () => {
-    if (senha.length < 6) { setErro("A senha deve ter pelo menos 6 caracteres."); return; }
-    if (senha !== confirmar) { setErro("As senhas não coincidem."); return; }
-    setLoading(true); setErro("");
-    const res = await sb.updatePassword(senha, accessToken);
-    setLoading(false);
-    if (res.erro) { setErro(res.erro); return; }
-    setOk(true);
-  };
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"#4A3D6280",zIndex:2100,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(8px)"}}>
-      <div className="fu" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:20,width:"100%",maxWidth:380,overflow:"hidden"}}>
-        <div style={{background:"linear-gradient(135deg,#7C5CBF08,transparent)",padding:"28px 24px 18px",borderBottom:`1px solid ${T.border}`,textAlign:"center"}}>
-          <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo size={160}/></div>
-          <div style={{color:T.mutedLt,fontSize:12,marginTop:2}}>Criar nova senha</div>
-        </div>
-        <div style={{padding:"18px 24px"}}>
-          {ok ? <>
-            <div style={{textAlign:"center",padding:"10px 0 4px"}}>
-              <div style={{width:48,height:48,borderRadius:"50%",background:`${T.success}18`,border:`1.5px solid ${T.success}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}><I.Check c={T.success} s={22}/></div>
-              <div style={{color:T.text,fontSize:13,lineHeight:1.6,marginBottom:16}}>Senha redefinida com sucesso. Você já pode entrar com sua nova senha.</div>
-              <button className="gb gl" onClick={onDone} style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14}}>Ir para o login →</button>
-            </div>
-          </> : <>
-            {erro && (
-              <div className="fi" style={{background:"#FF5A5A14",border:"1px solid #FF5A5A30",borderRadius:9,padding:"9px 12px",marginBottom:12,display:"flex",gap:7,alignItems:"flex-start"}}>
-                <I.Warn c={T.danger} s={14}/>
-                <span style={{color:T.danger,fontSize:11,lineHeight:1.5,whiteSpace:"pre-line"}}>{erro}</span>
-              </div>
-            )}
-            <div style={{marginBottom:12}}>
-              <label style={{display:"block",color:T.mutedLt,fontSize:10,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Nova senha</label>
-              <input type="password" placeholder="Mín. 6 caracteres" value={senha} onChange={e=>setSenha(e.target.value)}
-                style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:9,padding:"10px 12px",color:T.text,fontSize:14}}/>
-            </div>
-            <div style={{marginBottom:18}}>
-              <label style={{display:"block",color:T.mutedLt,fontSize:10,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Confirmar nova senha</label>
-              <input type="password" placeholder="Repita a senha" value={confirmar} onChange={e=>setConfirmar(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&salvar()}
-                style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:9,padding:"10px 12px",color:T.text,fontSize:14}}/>
-            </div>
-            <button className="gb gl" onClick={salvar} disabled={loading}
-              style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer"}}>
-              {loading ? <><Spin c="#FFFFFF"/>Salvando...</> : "Salvar nova senha"}
-            </button>
-          </>}
         </div>
       </div>
     </div>
@@ -1251,60 +1013,14 @@ const LF = ({label,k,ph,mask,type="text",half,form,errs,onChange,showS,setShowS}
   </div>
 );
 
-/* Termos de Uso e Política de Privacidade — VirtualPlan Consultoria em TI, CNPJ 46.516.875/0001-41.
-   ATENÇÃO: texto-base para revisão jurídica antes da publicação. Como o sistema trata
-   dados de saúde de pacientes (art. 5º, II da LGPD), recomenda-se validação por um
-   advogado antes de ir ao ar. */
-const TEXTO_TERMOS_VPBEAUTY = `TERMOS DE USO E POLÍTICA DE PRIVACIDADE — VPBEAUTY
-
-Última atualização: 23 de agosto de 2026
-
-1. QUEM SOMOS
-A plataforma VPBeauty é operada por VirtualPlan Consultoria em TI, inscrita no CNPJ sob o nº 46.516.875/0001-41, com sede na Avenida São Sebastião, 1353 - sala 201, Cuiabá/MT, CEP 78032-160 ("VPBeauty").
-
-2. OBJETO
-O VPBeauty é um sistema de gestão para clínicas de estética (agenda, prontuário, financeiro, estoque e módulos correlatos), oferecido por assinatura mensal ou anual conforme o plano contratado no ato da adesão.
-
-3. ASSINATURA, COBRANÇA E CANCELAMENTO
-3.1. O plano contratado é cobrado de forma recorrente (mensal ou anual), com renovação automática ao final de cada período, salvo cancelamento solicitado pelo(a) CONTRATANTE antes da data de renovação.
-3.2. O acesso ao sistema pode ser suspenso em caso de inadimplência, mediante aviso prévio.
-3.3. O cancelamento pode ser solicitado a qualquer momento pelos canais de suporte oficiais, sem multa, produzindo efeitos ao final do período já pago.
-
-4. DADOS PESSOAIS E DE SAÚDE — LGPD
-4.1. O(A) CONTRATANTE (clínica) é o(a) Controlador(a) dos dados pessoais e dados sensíveis de saúde de seus pacientes inseridos no sistema, sendo responsável por obter o consentimento e a base legal adequada junto a cada paciente, nos termos da Lei nº 13.709/2018 (LGPD).
-4.2. O VPBeauty atua como Operador(a) desses dados, processando-os exclusivamente para viabilizar as funcionalidades do sistema contratado, com medidas técnicas e administrativas de segurança da informação.
-4.3. Dados cadastrais da própria clínica e de seus usuários (nome, e-mail, telefone) são utilizados para prestação do serviço, faturamento, suporte e comunicações sobre a conta.
-4.4. O(A) CONTRATANTE pode solicitar a exportação ou exclusão de seus dados a qualquer momento, observadas obrigações legais de guarda de documentos fiscais e contábeis.
-
-5. RESPONSABILIDADES DO(A) CONTRATANTE
-5.1. Manter a confidencialidade de suas credenciais de acesso.
-5.2. Garantir a veracidade e a licitude dos dados inseridos no sistema, inclusive dados de pacientes.
-5.3. Utilizar o sistema em conformidade com a legislação aplicável à sua atividade (vigilância sanitária, conselhos de classe, proteção ao consumidor, entre outras).
-
-6. DISPONIBILIDADE E SUPORTE
-O VPBeauty envida seus melhores esforços para manter o serviço disponível de forma contínua, podendo realizar manutenções programadas com aviso prévio quando possível. O suporte é prestado pelos canais indicados na plataforma.
-
-7. LIMITAÇÃO DE RESPONSABILIDADE
-Nos limites da lei, o VPBeauty não se responsabiliza por decisões clínicas, comerciais ou financeiras tomadas pelo(a) CONTRATANTE com base nas informações do sistema, tampouco por indisponibilidades decorrentes de fatores fora de seu controle razoável.
-
-8. ALTERAÇÕES
-Estes Termos podem ser atualizados periodicamente. Alterações relevantes serão comunicadas ao(à) CONTRATANTE, sendo a permanência no uso do sistema após a comunicação interpretada como aceite às novas condições.
-
-9. FORO
-Fica eleito o foro da comarca de Cuiabá/MT para dirimir eventuais controvérsias decorrentes destes Termos, com renúncia a qualquer outro, por mais privilegiado que seja.
-
-Ao marcar "Li e concordo", o(a) CONTRATANTE declara ter lido e aceito integralmente estes Termos de Uso e Política de Privacidade.`;
-
-function CheckoutModal({plan,onClose,onSuccess,desconto=0,codigoAfiliado=""}) {
-  const [step,setStep]=useState(1);const [form,setForm]=useState({clinica:"",nome:"",email:"",telefone:"",senha:"",cpfCnpj:"",cep:"",numeroEndereco:"",cartao:"",validade:"",cvv:"",titular:""});const [errs,setErrs]=useState({});const [loading,setLoading]=useState(false);const [showS,setShowS]=useState(false);
-  const [aceiteTermos,setAceiteTermos]=useState(false);
-  const [showTermos,setShowTermos]=useState(false);
+function CheckoutModal({plan,onClose,onSuccess,desconto=0}) {
+  const [step,setStep]=useState(1);const [form,setForm]=useState({clinica:"",nome:"",email:"",telefone:"",senha:"",cartao:"",validade:"",cvv:"",titular:""});const [errs,setErrs]=useState({});const [loading,setLoading]=useState(false);const [showS,setShowS]=useState(false);
   const anual=plan==="anual";
   const precoBase = anual?3990:399;
   const precoFinal = desconto>0 ? precoBase*(1-desconto/100) : precoBase;
   const preco = precoFinal.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
   const f=(k,v)=>setForm(p=>({...p,[k]:v}));
-  const validate=()=>{const e={};if(step===1){if(!form.clinica.trim())e.clinica="Obrigatório";if(!form.nome.trim())e.nome="Obrigatório";if(!form.email.includes("@"))e.email="Inválido";if(form.telefone.replace(/\D/g,"").length<10)e.telefone="Inválido";if(form.senha.length<6)e.senha="Mín. 6 caracteres";if(form.cpfCnpj.replace(/\D/g,"").length<11)e.cpfCnpj="CPF ou CNPJ inválido";}if(step===2){if(form.cartao.replace(/\s/g,"").length<16)e.cartao="Inválido";if(!form.validade.includes("/"))e.validade="MM/AA";if(form.cvv.length<3)e.cvv="Inválido";if(!form.titular.trim())e.titular="Obrigatório";if(form.cep.replace(/\D/g,"").length<8)e.cep="CEP inválido";if(!form.numeroEndereco.trim())e.numeroEndereco="Obrigatório";if(!aceiteTermos)e.termos="É preciso aceitar os Termos de Uso e a Política de Privacidade para continuar.";}setErrs(e);return Object.keys(e).length===0;};
+  const validate=()=>{const e={};if(step===1){if(!form.clinica.trim())e.clinica="Obrigatório";if(!form.nome.trim())e.nome="Obrigatório";if(!form.email.includes("@"))e.email="Inválido";if(form.telefone.replace(/\D/g,"").length<10)e.telefone="Inválido";if(form.senha.length<6)e.senha="Mín. 6 caracteres";}if(step===2){if(form.cartao.replace(/\s/g,"").length<16)e.cartao="Inválido";if(!form.validade.includes("/"))e.validade="MM/AA";if(form.cvv.length<3)e.cvv="Inválido";if(!form.titular.trim())e.titular="Obrigatório";}setErrs(e);return Object.keys(e).length===0;};
   const next = async () => {
     if (!validate()) return;
     if (step === 1) { setStep(2); return; }
@@ -1314,34 +1030,30 @@ function CheckoutModal({plan,onClose,onSuccess,desconto=0,codigoAfiliado=""}) {
       DEMO_USERS.push({id:"demo-"+Date.now(),email:form.email,senha:form.senha,clinica:form.clinica,plano:plan,role:"supervisor",nome:form.nome,profissionalId:null});
       setLoading(false); setStep(3); return;
     }
-    const res = await sb.checkout({
-      clinica: form.clinica, nome: form.nome, email: form.email, telefone: form.telefone, senha: form.senha,
-      cpfCnpj: form.cpfCnpj, cep: form.cep, numeroEndereco: form.numeroEndereco, plano: plan,
-      cartao: { numero: form.cartao, validade: form.validade, cvv: form.cvv, titular: form.titular },
-      codigoAfiliado,
-    });
-    setLoading(false);
-    if (res.erro) { setErrs({cartao: res.erro}); return; }
-    setStep(3);
-  };
-  const [entrandoNoSistema, setEntrandoNoSistema] = useState(false);
-  const acessarSistema = async () => {
-    if (DEMO_MODE) { onSuccess({email:form.email,senha:form.senha,clinica:form.clinica,plano:plan}); return; }
-    setEntrandoNoSistema(true);
-    const auth = await sb.login(form.email, form.senha);
-    if (auth.erro) { setErrs({cartao:"Assinatura ativada, mas não foi possível entrar automaticamente. Feche esta janela e faça login."}); setEntrandoNoSistema(false); return; }
-    const vinculos = await sb.get("usuarios_clinica", `auth_user_id=eq.${auth.userId}&ativo=eq.true`);
-    const vinculo = vinculos?.[0];
-    const perfis = vinculo ? await sb.get("clinicas", `id=eq.${vinculo.clinica_id}`) : null;
-    const perfil = perfis?.[0];
-    setEntrandoNoSistema(false);
-    onSuccess({
-      id: vinculo?.clinica_id, authUserId: auth.userId, email: auth.email||form.email,
-      nome: vinculo?.nome||form.nome, role: vinculo?.role||"supervisor", profissionalId: vinculo?.profissional_id,
-      clinica: perfil?.nome||form.clinica, plano: perfil?.plano||plan,
-      contratoVencimento: perfil?.contrato_vencimento, acessoVitalicio: perfil?.acesso_vitalicio,
-      token: auth.token,
-    });
+    const auth = await sb.signup(form.email, form.senha);
+    if (auth.erro) { setErrs({email:auth.erro}); setLoading(false); return; }
+    if (auth.userId) {
+      /* 1. Cria a clínica com contrato de 1 ano a partir de hoje */
+      const vencimento = new Date();
+      vencimento.setFullYear(vencimento.getFullYear() + 1);
+      const novaClinica = await sb.post("clinicas", {
+        email: form.email, nome: form.clinica,
+        responsavel: form.nome, telefone: form.telefone,
+        plano: plan, created_at: new Date().toISOString(),
+        contrato_inicio: new Date().toISOString().split("T")[0],
+        contrato_vencimento: vencimento.toISOString().split("T")[0],
+        renovacao_automatica: true,
+      });
+      const clinicaId = novaClinica?.[0]?.id;
+      /* 2. Vincula o usuário que assinou como Supervisor da clínica */
+      if (clinicaId) {
+        await sb.post("usuarios_clinica", {
+          auth_user_id: auth.userId, clinica_id: clinicaId,
+          nome: form.nome, email: form.email, role: "supervisor", ativo: true,
+        });
+      }
+    }
+    setLoading(false); setStep(3);
   };
   const mCard=v=>v.replace(/\D/g,"").slice(0,16).replace(/(.{4})/g,"$1 ").trim();const mVal=v=>v.replace(/\D/g,"").slice(0,4).replace(/(\d{2})(\d)/,"$1/$2");
   return(
@@ -1362,19 +1074,14 @@ function CheckoutModal({plan,onClose,onSuccess,desconto=0,codigoAfiliado=""}) {
           ))}
         </div>
         <div style={{padding:"16px 21px"}}>
-          {step===1&&<div className="fu"><div style={{display:"flex",flexWrap:"wrap",gap:10}}><LF label="Nome da Clínica" k="clinica" ph="Ex: Studio Lumière" form={form} errs={errs} onChange={f}/><LF label="Seu nome" k="nome" ph="Responsável" form={form} errs={errs} onChange={f}/><LF label="E-mail" k="email" ph="seu@email.com" type="email" form={form} errs={errs} onChange={f}/><LF label="WhatsApp" k="telefone" ph="(11) 99999-9999" mask={maskFone} form={form} errs={errs} onChange={f}/><LF label="CPF ou CNPJ" k="cpfCnpj" ph="Para emissão da cobrança" mask={maskCpfCnpj} form={form} errs={errs} onChange={f}/><LF label="Senha de acesso" k="senha" ph="Mín. 6 caracteres" form={form} errs={errs} onChange={f} showS={showS} setShowS={setShowS}/></div></div>}
+          {step===1&&<div className="fu"><div style={{display:"flex",flexWrap:"wrap",gap:10}}><LF label="Nome da Clínica" k="clinica" ph="Ex: Studio Lumière" form={form} errs={errs} onChange={f}/><LF label="Seu nome" k="nome" ph="Responsável" form={form} errs={errs} onChange={f}/><LF label="E-mail" k="email" ph="seu@email.com" type="email" form={form} errs={errs} onChange={f}/><LF label="WhatsApp" k="telefone" ph="(11) 99999-9999" mask={maskFone} form={form} errs={errs} onChange={f}/><LF label="Senha de acesso" k="senha" ph="Mín. 6 caracteres" form={form} errs={errs} onChange={f} showS={showS} setShowS={setShowS}/></div></div>}
           {step===2&&<div className="fu">
             <div style={{background:`${T.gold}10`,border:`1px solid ${T.gold}28`,borderRadius:9,padding:"10px 12px",marginBottom:13,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div><div style={{color:T.text,fontWeight:600,fontSize:12}}>Plano {anual?"Anual":"Mensal"}</div>{anual&&<div style={{color:T.success,fontSize:10,marginTop:1}}>Economize R$ 798 vs. mensal</div>}</div>
               <div style={{color:T.gold,fontWeight:700,fontSize:16}}>R$ {preco}</div>
             </div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:10}}><LF label="Número do cartão" k="cartao" ph="0000 0000 0000 0000" mask={mCard} form={form} errs={errs} onChange={f}/><LF label="Nome no cartão" k="titular" ph="Como aparece no cartão" form={form} errs={errs} onChange={f}/><LF label="Validade" k="validade" ph="MM/AA" mask={mVal} half form={form} errs={errs} onChange={f}/><LF label="CVV" k="cvv" ph="123" half form={form} errs={errs} onChange={f}/><LF label="CEP de cobrança" k="cep" ph="00000-000" mask={maskCEP} half form={form} errs={errs} onChange={f}/><LF label="Número do endereço" k="numeroEndereco" ph="Ex: 100" half form={form} errs={errs} onChange={f}/></div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:10}}><LF label="Número do cartão" k="cartao" ph="0000 0000 0000 0000" mask={mCard} form={form} errs={errs} onChange={f}/><LF label="Nome no cartão" k="titular" ph="Como aparece no cartão" form={form} errs={errs} onChange={f}/><LF label="Validade" k="validade" ph="MM/AA" mask={mVal} half form={form} errs={errs} onChange={f}/><LF label="CVV" k="cvv" ph="123" half form={form} errs={errs} onChange={f}/></div>
             <div style={{display:"flex",alignItems:"center",gap:7,marginTop:9}}><I.Lock c={T.success} s={12}/><span style={{color:T.success,fontSize:11}}>SSL 256-bit — pagamento seguro</span></div>
-            <label style={{display:"flex",alignItems:"flex-start",gap:8,marginTop:14,cursor:"pointer"}}>
-              <input type="checkbox" checked={aceiteTermos} onChange={e=>setAceiteTermos(e.target.checked)} style={{marginTop:2,cursor:"pointer"}}/>
-              <span style={{color:T.mutedLt,fontSize:11,lineHeight:1.5}}>Li e concordo com os <button type="button" onClick={()=>setShowTermos(true)} style={{background:"none",border:"none",padding:0,color:T.gold,fontSize:11,fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>Termos de Uso e a Política de Privacidade</button> do VPBeauty.</span>
-            </label>
-            {errs.termos&&<span style={{color:T.danger,fontSize:10,marginTop:4,display:"block"}}>{errs.termos}</span>}
           </div>}
           {step===3&&<div className="fu" style={{textAlign:"center",padding:"10px 0"}}>
             <div style={{width:58,height:58,borderRadius:"50%",background:`${T.success}18`,border:`1.5px solid ${T.success}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}><I.Check c={T.success} s={26}/></div>
@@ -1382,8 +1089,7 @@ function CheckoutModal({plan,onClose,onSuccess,desconto=0,codigoAfiliado=""}) {
             <div style={{background:T.surface,borderRadius:10,padding:12,textAlign:"left",marginBottom:16}}>
               {[`Login: ${form.email}`,"5 usuários incluídos","Todos os módulos ativos","Suporte WhatsApp"].map(t=><div key={t} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}><I.Check c={T.success} s={12}/><span style={{color:T.text,fontSize:12}}>{t}</span></div>)}
             </div>
-            <button className="gb gl" onClick={acessarSistema} disabled={entrandoNoSistema} style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>{entrandoNoSistema?<><Spin c="#FFFFFF"/>Entrando...</>:"Acessar o Sistema →"}</button>
-            {errs.cartao&&<div style={{background:T.danger+"14",border:`1px solid ${T.danger}30`,borderRadius:8,padding:"9px 12px",marginTop:10,color:T.danger,fontSize:12}}>{errs.cartao}</div>}
+            <button className="gb gl" onClick={()=>onSuccess({email:form.email,senha:form.senha,clinica:form.clinica,plano:plan})} style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14}}>Acessar o Sistema →</button>
           </div>}
         </div>
         {step<3&&<div style={{padding:"0 21px 16px"}}>
@@ -1393,22 +1099,6 @@ function CheckoutModal({plan,onClose,onSuccess,desconto=0,codigoAfiliado=""}) {
           <p style={{color:T.muted,fontSize:10,textAlign:"center",marginTop:7}}>{anual?"Cobrança anual":"Cancele a qualquer momento"}</p>
         </div>}
       </div>
-      {showTermos && (
-        <div style={{position:"fixed",inset:0,background:"#4A3D6280",zIndex:2200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>e.target===e.currentTarget&&setShowTermos(false)}>
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,width:"100%",maxWidth:560,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
-            <div style={{padding:"16px 21px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div className="cm" style={{fontSize:15,fontWeight:600,color:T.text}}>Termos de Uso e Política de Privacidade</div>
-              <button onClick={()=>setShowTermos(false)} style={{background:"none",border:"none",color:T.muted}}><I.X c={T.muted} s={17}/></button>
-            </div>
-            <div style={{padding:"14px 21px",overflowY:"auto"}}>
-              <pre style={{color:T.mutedLt,fontSize:11,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"inherit",margin:0}}>{TEXTO_TERMOS_VPBEAUTY}</pre>
-            </div>
-            <div style={{padding:"12px 21px",borderTop:`1px solid ${T.border}`}}>
-              <button className="gb gl" onClick={()=>{setAceiteTermos(true);setShowTermos(false);}} style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:9,padding:"11px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Li e concordo</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1420,10 +1110,39 @@ function CheckoutModal({plan,onClose,onSuccess,desconto=0,codigoAfiliado=""}) {
 
 /* ─── DASHBOARD ──────────────────────────────────────────────── */
 function Dashboard({data, user}) {
-  const isSupervisor = !user || user.role !== "profissional";
+  const [diag, setDiag] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+
+  const testarConexao = async () => {
+    setDiagLoading(true);
+    const resultado = { url: SUPABASE_URL, demo: DEMO_MODE, userId: user?.id, testes: [] };
+    try {
+      // Teste 1: Autenticação
+      const r1 = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: getHeaders() });
+      resultado.testes.push({ nome: "Autenticação (token)", ok: r1.ok, status: r1.status, msg: r1.ok ? "Token válido ✓" : `Falhou (${r1.status}) — refaça o login` });
+
+      // Teste 2: Leitura de clinicas
+      const r2 = await fetch(`${SUPABASE_URL}/rest/v1/clinicas?limit=5`, { headers: getHeaders() });
+      const d2 = await r2.json();
+      resultado.testes.push({ nome: "Leitura — tabela clinicas", ok: r2.ok && !d2.message, status: r2.status, msg: r2.ok && !d2.message ? `OK — ${d2.length} registro(s)` : (d2.message || d2.hint || `Erro ${r2.status}`) });
+
+      // Teste 3: Leitura de pacientes
+      const r3 = await fetch(`${SUPABASE_URL}/rest/v1/pacientes?limit=5`, { headers: getHeaders() });
+      const d3 = await r3.json();
+      resultado.testes.push({ nome: "Leitura — tabela pacientes", ok: r3.ok && !d3.message, status: r3.status, msg: r3.ok && !d3.message ? `OK — ${d3.length} registro(s)` : (d3.message || d3.hint || `Erro ${r3.status} — verifique RLS`) });
+
+      // Teste 4: Inserção de teste
+      const r4 = await fetch(`${SUPABASE_URL}/rest/v1/clinicas?email=eq.teste_diagnostico@sistema.com`, { headers: getHeaders() });
+      resultado.testes.push({ nome: "Permissão de escrita", ok: r4.ok, status: r4.status, msg: r4.ok ? "Permissão OK ✓" : `Sem permissão de escrita (${r4.status})` });
+
+    } catch (e) {
+      resultado.testes.push({ nome: "Conexão de rede", ok: false, status: 0, msg: `Erro: ${e.message}` });
+    }
+    setDiag(resultado);
+    setDiagLoading(false);
+  };
   const [filt,setFilt]=useState({de:"",ate:"",profissional:""});
   const ff=(k,v)=>setFilt(p=>({...p,[k]:v}));
-  const [vendasView,setVendasView]=useState("cliente"); // 'cliente' | 'item' | 'profissional'
 
   const atFiltrados = useMemo(()=>{
     let list=[...data.atendimentos];
@@ -1434,9 +1153,8 @@ function Dashboard({data, user}) {
   },[data.atendimentos,filt]);
 
   const rec=atFiltrados.reduce((s,a)=>s+(Number(a.valor_final||a.valor)||0),0);
-  const despFiltradas=(data.contas_pagar||[]).filter(c=>c.status!=="cancelado"&&(!filt.de||c.vencimento>=filt.de)&&(!filt.ate||c.vencimento<=filt.ate));
-  const tf=despFiltradas.filter(c=>c.recorrente).reduce((s,d)=>s+(Number(d.valor)||0),0);
-  const tv=despFiltradas.filter(c=>!c.recorrente).reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const tf=data.despesas_fixas.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const tv=data.despesas_variaveis.reduce((s,d)=>s+(Number(d.valor)||0),0);
   const lucro=rec-tf-tv;
   const hoje=data.agendamentos.filter(a=>a.data===today());
   const baixo=data.produtos.filter(e=>e.estoque_atual<=e.estoque_minimo);
@@ -1447,48 +1165,6 @@ function Dashboard({data, user}) {
     const saldo=movs.reduce((acc,m)=>m.tipo==="entrada"?acc+Number(m.valor):acc-Number(m.valor),Number(c.saldo_inicial)||0);
     return s+saldo;
   },0);
-
-  // Últimas vendas — agrupável por cliente, produto/procedimento ou profissional.
-  // Sempre parte de atFiltrados (já escopado por papel/período) para não vazar
-  // atendimentos de outros profissionais mesmo indiretamente via itens.
-  const itensDasVendas = useMemo(()=>{
-    const idsAt = new Set(atFiltrados.map(a=>a.id));
-    return (data.atendimento_itens||[]).filter(i=>idsAt.has(i.atendimento_id));
-  },[data.atendimento_itens,atFiltrados]);
-
-  const vendasPorCliente = useMemo(()=>{
-    const porPaciente={};
-    atFiltrados.forEach(a=>{
-      const chave=a.paciente_id||a.paciente;
-      if(!porPaciente[chave]) porPaciente[chave]={nome:a.paciente,valor:0,visitas:0};
-      porPaciente[chave].valor+=Number(a.valor_final||a.valor)||0;
-      porPaciente[chave].visitas+=1;
-    });
-    return Object.values(porPaciente).sort((a,b)=>b.valor-a.valor);
-  },[atFiltrados]);
-
-  const vendasPorItem = useMemo(()=>{
-    const porItem={};
-    itensDasVendas.forEach(i=>{
-      const chave=i.descricao||"—";
-      if(!porItem[chave]) porItem[chave]={nome:chave,tipo:i.tipo,valor:0,qtd:0};
-      porItem[chave].valor+=Number(i.valor_total)||0;
-      porItem[chave].qtd+=Number(i.quantidade)||0;
-    });
-    return Object.values(porItem).sort((a,b)=>b.valor-a.valor);
-  },[itensDasVendas]);
-
-  const vendasPorProfissional = useMemo(()=>{
-    const porProf={};
-    atFiltrados.forEach(a=>{
-      const prof=data.profissionais.find(p=>p.id===a.profissional_id);
-      const chave=a.profissional_id||"—";
-      if(!porProf[chave]) porProf[chave]={nome:prof?.nome||"—",valor:0,atendimentos:0};
-      porProf[chave].valor+=Number(a.valor_final||a.valor)||0;
-      porProf[chave].atendimentos+=1;
-    });
-    return Object.values(porProf).sort((a,b)=>b.valor-a.valor);
-  },[atFiltrados,data.profissionais]);
 
   return (
     <div>
@@ -1503,6 +1179,46 @@ function Dashboard({data, user}) {
         <span style={{color:T.gold,fontSize:11,fontWeight:600}}>Modo Demonstração — dados simulados. Configure SUPABASE_URL e SUPABASE_KEY no topo do App.js para usar dados reais.</span>
       </div>}
 
+      {/* Painel de diagnóstico — aparece apenas no modo real */}
+      {!DEMO_MODE&&<div style={{marginBottom:14}}>
+        {!diag&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+          <span style={{color:C.muted,fontSize:12}}>Clique em "Testar Conexão" se os dados não estiverem aparecendo</span>
+          <Btn v="i" onClick={testarConexao} disabled={diagLoading} style={{whiteSpace:"nowrap"}}>
+            {diagLoading?<><Spin s={12} c={C.info}/>Testando...</>:<><I.Refresh s={12}/> Testar Conexão</>}
+          </Btn>
+        </div>}
+        {diag&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",marginBottom:0}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <span style={{color:C.text,fontSize:12,fontWeight:700}}>Diagnóstico de Conexão</span>
+            <div style={{display:"flex",gap:7}}>
+              <Btn v="g" onClick={testarConexao} style={{fontSize:10,padding:"3px 9px"}}><I.Refresh s={11}/> Retestar</Btn>
+              <Btn v="g" onClick={()=>setDiag(null)} style={{fontSize:10,padding:"3px 9px"}}><I.X s={11}/> Fechar</Btn>
+            </div>
+          </div>
+          <div style={{marginBottom:8,fontSize:11,color:C.muted}}>
+            URL: <code style={{color:C.text,fontSize:10}}>{diag.url}</code> · ID: <code style={{color:C.text,fontSize:10}}>{diag.userId||"não definido"}</code>
+          </div>
+          {diag.testes.map((t,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:6,padding:"7px 10px",background:t.ok?C.success+"10":C.danger+"10",borderRadius:7,border:`1px solid ${t.ok?C.success:C.danger}25`}}>
+              <span style={{fontSize:14,flexShrink:0}}>{t.ok?"✅":"❌"}</span>
+              <div>
+                <div style={{color:C.text,fontSize:11,fontWeight:600}}>{t.nome}</div>
+                <div style={{color:t.ok?C.success:C.danger,fontSize:11}}>{t.msg}</div>
+              </div>
+            </div>
+          ))}
+          {diag.testes.some(t=>!t.ok)&&<div style={{marginTop:10,background:C.warn+"12",border:`1px solid ${C.warn}30`,borderRadius:8,padding:"9px 12px"}}>
+            <div style={{color:C.warn,fontSize:11,fontWeight:700,marginBottom:4}}>O que fazer para corrigir:</div>
+            <div style={{color:C.text,fontSize:11,lineHeight:1.7}}>
+              1. No Supabase → SQL Editor → execute o arquivo <strong>fix-rls-supabase.sql</strong><br/>
+              2. Verifique se SUPABASE_KEY é a chave <strong>anon/public</strong> (começa com eyJ...)<br/>
+              3. Faça logout e login novamente para renovar o token<br/>
+              4. Verifique se o e-mail do login está cadastrado em <strong>Authentication → Users</strong>
+            </div>
+          </div>}
+        </div>}
+      </div>}
+
       <FilterBar
         filters={[
           {key:"de",type:"date",label:"De"},
@@ -1513,10 +1229,10 @@ function Dashboard({data, user}) {
       />
 
       <div className="stat-row" style={{display:"flex",gap:9,marginBottom:13,flexWrap:"wrap"}}>
-        <SC label={isSupervisor?"Receita":"Meus Atendimentos"} value={fmt(rec)} Icon={I.Up} color={C.success} sub={`${atFiltrados.length} atend.`}/>
-        {isSupervisor&&<SC label="Despesas" value={fmt(tf+tv)} Icon={I.Dollar} color={C.danger}/>}
-        {isSupervisor&&<SC label="Lucro" value={fmt(lucro)} Icon={I.Sparkle} color={C.accent} sub={`${rec>0?Math.round(lucro/rec*100):0}%`}/>}
-        {isSupervisor&&<SC label="Saldo Contas" value={fmt(saldoCaixa)} Icon={I.Bank} color={C.info}/>}
+        <SC label="Receita" value={fmt(rec)} Icon={I.Up} color={C.success} sub={`${atFiltrados.length} atend.`}/>
+        <SC label="Despesas" value={fmt(tf+tv)} Icon={I.Dollar} color={C.danger}/>
+        <SC label="Lucro" value={fmt(lucro)} Icon={I.Sparkle} color={C.accent} sub={`${rec>0?Math.round(lucro/rec*100):0}%`}/>
+        <SC label="Saldo Contas" value={fmt(saldoCaixa)} Icon={I.Bank} color={C.info}/>
       </div>
 
       {baixo.length>0&&<div style={{background:C.warn+"14",border:`1px solid ${C.warn}35`,borderRadius:10,padding:"8px 12px",marginBottom:11,display:"flex",alignItems:"center",gap:8}}>
@@ -1546,42 +1262,18 @@ function Dashboard({data, user}) {
           );})}
         </div>
       </div>
-
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:14,marginTop:11}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:11}}>
-          <h3 style={{color:C.text,fontSize:11,fontWeight:700}}>Últimas Vendas</h3>
-          <div style={{display:"flex",gap:6}}>
-            {[["cliente","Cliente"],["item","Produto/Procedimento"],...(isSupervisor?[["profissional","Profissional"]]:[])].map(([id,label])=>(
-              <button key={id} onClick={()=>setVendasView(id)} style={{padding:"5px 11px",borderRadius:8,border:`1px solid ${vendasView===id?C.accent:C.border}`,background:vendasView===id?C.accentSoft:"transparent",color:vendasView===id?C.accent:C.muted,fontSize:11,fontWeight:vendasView===id?700:400,cursor:"pointer"}}>{label}</button>
-            ))}
-          </div>
-        </div>
-        {vendasView==="cliente"&&<ST cols={["Cliente","Visitas","Total"]}
-          rows={vendasPorCliente.slice(0,15).map(v=>[<span style={{fontWeight:600,fontSize:12}}>{v.nome||"—"}</span>,<span style={{fontSize:11}}>{v.visitas}</span>,<span style={{color:C.success,fontWeight:700}}>{fmt(v.valor)}</span>])}
-          empty="Nenhuma venda no período."/>}
-        {vendasView==="item"&&<ST cols={["Produto/Procedimento","Tipo","Qtd.","Total"]}
-          rows={vendasPorItem.slice(0,15).map(v=>[<span style={{fontWeight:600,fontSize:12}}>{v.nome}</span>,<Badge text={v.tipo==="produto"?"Produto":"Procedimento"} color={v.tipo==="produto"?C.info:C.accent}/>,<span style={{fontSize:11}}>{v.qtd}</span>,<span style={{color:C.success,fontWeight:700}}>{fmt(v.valor)}</span>])}
-          empty="Nenhuma venda no período."/>}
-        {vendasView==="profissional"&&isSupervisor&&<ST cols={["Profissional","Atendimentos","Total"]}
-          rows={vendasPorProfissional.slice(0,15).map(v=>[<span style={{fontWeight:600,fontSize:12}}>{v.nome}</span>,<span style={{fontSize:11}}>{v.atendimentos}</span>,<span style={{color:C.success,fontWeight:700}}>{fmt(v.valor)}</span>])}
-          empty="Nenhuma venda no período."/>}
-      </div>
     </div>
   );
 }
 
 /* ─── AGENDAMENTOS ───────────────────────────────────────────── */
-function Agendamentos({data,insert,update,onRealizar}) {
+function Agendamentos({data,insert,update}) {
   const [modal,setModal]=useState(false);
-  const [bloqueioModal,setBloqueioModal]=useState(false);
-  const [visao,setVisao]=useState("dia"); // "mes" | "semana" | "dia" | "lista"
+  const [visao,setVisao]=useState("cards"); // "cards" ou "lista"
   const [diaSelecionado,setDiaSelecionado]=useState(today());
   const [filt,setFilt]=useState({status:"",profissional:"",procedimento:"",de:"",ate:""});
   const ff=(k,v)=>setFilt(p=>({...p,[k]:v}));
   const [form,setForm]=useState({paciente_id:"",paciente:"",procedimento_id:"",servico:"",profissional_id:"",data:today(),hora:"09:00",duracao_minutos:60,status:"aguardando",observacoes:""});
-  const [formBloqueio,setFormBloqueio]=useState({profissional_id:"",data_inicio:today(),data_fim:today(),motivo:""});
-  const [erroSalvar,setErroSalvar]=useState("");
-  const [salvando,setSalvando]=useState(false);
 
   const lista=useMemo(()=>{
     let l=[...data.agendamentos];
@@ -1593,6 +1285,7 @@ function Agendamentos({data,insert,update,onRealizar}) {
     return l.sort((a,b)=>a.data.localeCompare(b.data)||a.hora.localeCompare(b.hora));
   },[data.agendamentos,filt]);
 
+  /* Agendamentos do dia selecionado, para a visão em cards */
   const doDia = useMemo(()=>{
     return data.agendamentos
       .filter(a=>a.data===diaSelecionado)
@@ -1600,97 +1293,13 @@ function Agendamentos({data,insert,update,onRealizar}) {
       .sort((a,b)=>a.hora.localeCompare(b.hora));
   },[data.agendamentos,diaSelecionado,filt.profissional]);
 
-  /* Profissionais com a agenda bloqueada no dia selecionado, com nome e motivo */
-  const bloqueiosDoDia = useMemo(()=>{
-    return (data.bloqueios_agenda||[])
-      .filter(b=>diaSelecionado>=b.data_inicio && diaSelecionado<=b.data_fim)
-      .filter(b=>!filt.profissional||String(b.profissional_id)===filt.profissional)
-      .map(b=>({...b, prof: data.profissionais.find(p=>p.id===b.profissional_id)}));
-  },[data.bloqueios_agenda,diaSelecionado,filt.profissional,data.profissionais]);
-
-  /* ── Validação: horário de trabalho + bloqueio + colisão de horário ── */
-  const validarAgendamento = (profissionalId, dataISO, hora, duracaoMin, ignorarAgendamentoId) => {
-    const diaSemana = new Date(dataISO+"T12:00:00").getDay();
-    const horarioDia = (data.horarios_profissional||[]).find(h=>h.profissional_id===profissionalId && h.dia_semana===diaSemana);
-
-    if(!horarioDia || !horarioDia.ativo){
-      return "Este profissional não atende neste dia da semana (verifique o horário de trabalho em Cadastros → Profissionais).";
-    }
-    if(hora < horarioDia.hora_inicio || hora >= horarioDia.hora_fim){
-      return `Fora do horário de trabalho. Este profissional atende das ${horarioDia.hora_inicio} às ${horarioDia.hora_fim} neste dia.`;
-    }
-
-    const bloqueio = (data.bloqueios_agenda||[]).find(b=>
-      b.profissional_id===profissionalId && dataISO>=b.data_inicio && dataISO<=b.data_fim
-    );
-    if(bloqueio){
-      return `Agenda bloqueada neste período${bloqueio.motivo?` — ${bloqueio.motivo}`:""}.`;
-    }
-
-    const [h,m]=hora.split(":").map(Number);
-    const inicioMin=h*60+m, fimMin=inicioMin+(Number(duracaoMin)||60);
-    const conflito = data.agendamentos.find(a=>{
-      if(a.id===ignorarAgendamentoId) return false;
-      if(a.profissional_id!==profissionalId || a.data!==dataISO || a.status==="cancelado") return false;
-      const [ah,am]=a.hora.split(":").map(Number);
-      const aIni=ah*60+am, aFim=aIni+(Number(a.duracao_minutos)||60);
-      return inicioMin<aFim && fimMin>aIni;
-    });
-    if(conflito){
-      return `Conflito de horário: já existe "${conflito.paciente}" agendado(a) às ${conflito.hora} com este profissional.`;
-    }
-    return null; // sem erro = válido
-  };
-
-  const salvar=async()=>{
-    setErroSalvar(""); setSalvando(true);
-    const profId = parseInt(form.profissional_id);
-    const erroValidacao = validarAgendamento(profId, form.data, form.hora, form.duracao_minutos);
-    if(erroValidacao){ setErroSalvar(erroValidacao); setSalvando(false); return; }
-    try{
-      const proc=data.procedimentos.find(p=>p.id===parseInt(form.procedimento_id));
-      await insert("agendamentos",{paciente_id:parseInt(form.paciente_id),paciente:form.paciente,profissional_id:profId,procedimento_id:parseInt(form.procedimento_id),servico:proc?.nome||form.servico,data:form.data,hora:form.hora,duracao_minutos:Number(form.duracao_minutos)||proc?.duracao_minutos||60,status:form.status,observacoes:form.observacoes,valor:proc?.preco_venda||0});
-      setModal(false);
-    }catch(e){
-      setErroSalvar(e.message||"Erro ao salvar o agendamento.");
-    }
-    setSalvando(false);
-  };
-
+  const salvar=async()=>{const proc=data.procedimentos.find(p=>p.id===parseInt(form.procedimento_id));await insert("agendamentos",{paciente_id:parseInt(form.paciente_id),paciente:form.paciente,profissional_id:parseInt(form.profissional_id),procedimento_id:parseInt(form.procedimento_id),servico:proc?.nome||form.servico,data:form.data,hora:form.hora,duracao_minutos:Number(form.duracao_minutos)||proc?.duracao_minutos||60,status:form.status,observacoes:form.observacoes,valor:proc?.preco_venda||0});setModal(false);};
   const confirmar=id=>update("agendamentos",id,{status:"confirmado"});
   const cancelar=id=>update("agendamentos",id,{status:"cancelado"});
-  /* Cria o atendimento em rascunho (status "aberto") já com o procedimento agendado
-     como 1º item, e abre a tela de Atendimentos em modo edição pra profissional
-     poder acrescentar mais itens antes de fechar. */
-  const realizar=async ag=>{
-    const novoAt = await insert("atendimentos",{paciente:ag.paciente,paciente_id:ag.paciente_id,procedimento_id:ag.procedimento_id,servico:ag.servico,profissional_id:ag.profissional_id,data:ag.data,valor:ag.valor,valor_final:ag.valor,desconto:0,pago:false,status:"aberto",forma_pagamento:"",observacoes:""});
-    let itemCriado=null;
-    if(ag.procedimento_id && novoAt?.id){
-      itemCriado = await insert("atendimento_itens",{atendimento_id:novoAt.id,tipo:"procedimento",procedimento_id:ag.procedimento_id,descricao:ag.servico,quantidade:1,valor_unitario:ag.valor,valor_total:ag.valor});
-    }
-    await update("agendamentos",ag.id,{status:"realizado"});
-    /* Passa o atendimento e o item recém-criados diretamente (não confia em "data",
-       que só é atualizado depois que o load() disparado por insert() terminar —
-       nesse instante ainda reflete o estado de antes de criar o atendimento). */
-    if(novoAt?.id && onRealizar) onRealizar({atendimento:novoAt, itens:itemCriado?[itemCriado]:[]});
-  };
+  const realizar=async ag=>{await insert("atendimentos",{paciente:ag.paciente,paciente_id:ag.paciente_id,procedimento_id:ag.procedimento_id,servico:ag.servico,profissional_id:ag.profissional_id,data:ag.data,valor:ag.valor,valor_final:ag.valor,desconto:0,pago:false,forma_pagamento:"",observacoes:""});await update("agendamentos",ag.id,{status:"realizado"});};
   const sc={confirmado:C.success,aguardando:C.warn,cancelado:C.danger,realizado:C.purple};
 
-  const abrirModal = (horaPreenchida) => {
-    setErroSalvar("");
-    setForm({paciente_id:"",paciente:"",procedimento_id:"",servico:"",profissional_id:"",data:diaSelecionado,hora:horaPreenchida||"09:00",duracao_minutos:60,status:"aguardando",observacoes:""});
-  };
-
-  const salvarBloqueio = async () => {
-    if(!formBloqueio.profissional_id) return;
-    await insert("bloqueios_agenda",{
-      profissional_id:parseInt(formBloqueio.profissional_id),
-      data_inicio:formBloqueio.data_inicio, data_fim:formBloqueio.data_fim,
-      motivo:formBloqueio.motivo,
-    });
-    setBloqueioModal(false);
-    setFormBloqueio({profissional_id:"",data_inicio:today(),data_fim:today(),motivo:""});
-  };
+  const abrirModal = (horaPreenchida) => setForm({paciente_id:"",paciente:"",procedimento_id:"",servico:"",profissional_id:"",data:diaSelecionado,hora:horaPreenchida||"09:00",duracao_minutos:60,status:"aguardando",observacoes:""});
 
   const mudarDia = (delta) => {
     const d = new Date(diaSelecionado+"T12:00:00");
@@ -1704,140 +1313,19 @@ function Agendamentos({data,insert,update,onRealizar}) {
     return `${String(Math.floor(total/60)).padStart(2,"0")}:${String(total%60).padStart(2,"0")}`;
   };
 
-  /* ── Dados para a visão de MÊS ── */
-  const [mesRef,setMesRef] = useState(()=>{const d=new Date(diaSelecionado+"T12:00:00");return {ano:d.getFullYear(),mes:d.getMonth()};});
-  const diasDoMes = useMemo(()=>{
-    const primeiro = new Date(mesRef.ano, mesRef.mes, 1);
-    const ultimo = new Date(mesRef.ano, mesRef.mes+1, 0);
-    const offsetInicio = primeiro.getDay(); // 0=domingo
-    const dias=[];
-    for(let i=0;i<offsetInicio;i++) dias.push(null);
-    for(let dia=1;dia<=ultimo.getDate();dia++){
-      const iso = `${mesRef.ano}-${String(mesRef.mes+1).padStart(2,"0")}-${String(dia).padStart(2,"0")}`;
-      const ags = data.agendamentos.filter(a=>a.data===iso && (!filt.profissional||String(a.profissional_id)===filt.profissional) && a.status!=="cancelado")
-        .map(a=>({...a, profNome: data.profissionais.find(p=>p.id===a.profissional_id)?.nome || "—"}));
-      const bloqueios = (data.bloqueios_agenda||[]).filter(b=>(!filt.profissional||String(b.profissional_id)===filt.profissional)&&iso>=b.data_inicio&&iso<=b.data_fim)
-        .map(b=>({...b, profNome: data.profissionais.find(p=>p.id===b.profissional_id)?.nome || "Profissional"}));
-      dias.push({iso, dia, qtd:ags.length, ags, bloqueios});
-    }
-    return dias;
-  },[mesRef,data.agendamentos,data.bloqueios_agenda,data.profissionais,filt.profissional]);
-
-  const mudarMes = (delta) => setMesRef(m=>{
-    const novo = new Date(m.ano, m.mes+delta, 1);
-    return {ano:novo.getFullYear(), mes:novo.getMonth()};
-  });
-
-  /* ── Dados para a visão de SEMANA ── */
-  const diasDaSemana = useMemo(()=>{
-    const d = new Date(diaSelecionado+"T12:00:00");
-    const diaSemana = d.getDay();
-    const domingo = new Date(d); domingo.setDate(d.getDate()-diaSemana);
-    return Array.from({length:7},(_,i)=>{
-      const dt = new Date(domingo); dt.setDate(domingo.getDate()+i);
-      const iso = dt.toISOString().split("T")[0];
-      const ags = data.agendamentos.filter(a=>a.data===iso && (!filt.profissional||String(a.profissional_id)===filt.profissional) && a.status!=="cancelado").sort((a,b)=>a.hora.localeCompare(b.hora));
-      const bloqueios = (data.bloqueios_agenda||[]).filter(b=>(!filt.profissional||String(b.profissional_id)===filt.profissional)&&iso>=b.data_inicio&&iso<=b.data_fim)
-        .map(b=>({...b, prof: data.profissionais.find(p=>p.id===b.profissional_id)}));
-      return {iso, label:dt.toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit"}), ags, bloqueios};
-    });
-  },[diaSelecionado,data.agendamentos,data.bloqueios_agenda,data.profissionais,filt.profissional]);
-
-  const nomesMeses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
-
   return(
     <div>
       <PH title="Agendamentos" sub={`${lista.length} registros no total`}>
-        <div style={{display:"flex",gap:5,marginRight:6,flexWrap:"wrap"}}>
-          {[["mes","Mês"],["semana","Semana"],["dia","Dia"],["lista","Lista"]].map(([id,label])=>(
+        <div style={{display:"flex",gap:5,marginRight:6}}>
+          {[["cards","Agenda"],["lista","Lista"]].map(([id,label])=>(
             <button key={id} onClick={()=>setVisao(id)} style={{padding:"7px 13px",borderRadius:8,border:`1px solid ${visao===id?C.accent:C.border}`,background:visao===id?C.accentSoft:"transparent",color:visao===id?C.accent:C.muted,fontSize:12,fontWeight:visao===id?700:400,cursor:"pointer"}}>{label}</button>
           ))}
         </div>
-        <Btn v="g" onClick={()=>setBloqueioModal(true)}><I.Lock s={12}/> Bloquear período</Btn>
         <Btn onClick={()=>{abrirModal();setModal(true);}}><I.Plus s={12}/> Novo</Btn>
       </PH>
 
-      {(visao==="mes"||visao==="semana"||visao==="dia")&&
-        <FilterBar filters={[{key:"profissional",type:"select",label:"Profissional",options:data.profissionais.map(p=>({value:String(p.id),label:p.nome}))}]} values={{profissional:filt.profissional}} onChange={ff}/>
-      }
-
-      {/* ── VISÃO MÊS ── */}
-      {visao==="mes"&&<>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px"}}>
-          <button onClick={()=>mudarMes(-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={14} style={{transform:"rotate(180deg)"}}/></button>
-          <div style={{color:C.text,fontWeight:700,fontSize:15}}>{nomesMeses[mesRef.mes]} {mesRef.ano}</div>
-          <button onClick={()=>mudarMes(1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={14}/></button>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6,marginBottom:6}}>
-          {["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].map(d=><div key={d} style={{textAlign:"center",color:C.muted,fontSize:10,fontWeight:700,padding:"4px 0"}}>{d}</div>)}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
-          {diasDoMes.map((d,i)=>d===null
-            ? <div key={"vazio"+i}/>
-            : <button key={d.iso} onClick={()=>{setDiaSelecionado(d.iso);setVisao("dia");}}
-                title={d.bloqueios.length>0
-                  ? d.bloqueios.map(b=>`${b.profNome}${b.motivo?` — ${b.motivo}`:""}`).join("\n")
-                  : (d.ags.length>0 ? d.ags.map(a=>`${a.hora} — ${a.paciente} (${a.profNome}) · ${a.servico||"—"}`).join("\n") : undefined)}
-                style={{aspectRatio:"1",minHeight:76,background:d.bloqueios.length>0?C.danger+"0C":(d.iso===today()?C.accentSoft:C.card),border:`1.5px solid ${d.bloqueios.length>0?C.danger+"70":C.border}`,borderRadius:9,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",padding:4,position:"relative",overflow:"hidden"}}>
-                <span style={{color:d.iso===today()?C.accent:C.text,fontWeight:d.iso===today()?700:500,fontSize:12,marginBottom:2}}>{d.dia}</span>
-                {d.ags.slice(0,2).map(a=>(
-                  <div key={a.id} style={{width:"100%",background:C.accentSoft,borderRadius:4,padding:"1px 3px",marginBottom:2,fontSize:8,lineHeight:1.2,textAlign:"left",overflow:"hidden"}}>
-                    <div style={{color:C.text,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{a.paciente}</div>
-                    <div style={{color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{a.profNome.split(" ")[0]}</div>
-                  </div>
-                ))}
-                {d.ags.length>2&&<span style={{color:C.muted,fontSize:8}}>+{d.ags.length-2} mais</span>}
-                {d.bloqueios.length>0&&<>
-                  <div style={{position:"absolute",top:3,right:3,background:C.danger,borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    <I.Lock c="#FFFFFF" s={11}/>
-                  </div>
-                  <div style={{display:"flex",gap:2,marginTop:1}}>
-                    {d.bloqueios.slice(0,3).map(b=>{const prof=data.profissionais.find(p=>p.id===b.profissional_id);return(
-                      <div key={b.id} style={{width:7,height:7,borderRadius:"50%",background:prof?.cor||C.danger}}/>
-                    );})}
-                  </div>
-                </>}
-              </button>
-          )}
-        </div>
-        <p style={{color:C.muted,fontSize:10,marginTop:8,textAlign:"center"}}>Passe o mouse sobre um dia para ver todos os horários, profissionais e procedimentos.</p>
-      </>}
-
-      {/* ── VISÃO SEMANA ── */}
-      {visao==="semana"&&<>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px"}}>
-          <button onClick={()=>mudarDia(-7)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={14} style={{transform:"rotate(180deg)"}}/></button>
-          <div style={{color:C.text,fontWeight:700,fontSize:13}}>{diasDaSemana[0]?.iso&&fmtDate(diasDaSemana[0].iso)} — {diasDaSemana[6]?.iso&&fmtDate(diasDaSemana[6].iso)}</div>
-          <button onClick={()=>mudarDia(7)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={14}/></button>
-        </div>
-        <div className="g1" style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8}}>
-          {diasDaSemana.map(dia=>(
-            <div key={dia.iso} onClick={()=>{setDiaSelecionado(dia.iso);setVisao("dia");}}
-              title={dia.bloqueios.length>0?dia.bloqueios.map(b=>`${b.prof?.nome||"Profissional"}${b.motivo?` — ${b.motivo}`:""}`).join("\n"):undefined}
-              style={{background:dia.bloqueios.length>0?C.danger+"0C":(dia.iso===today()?C.accentSoft:C.card),border:`1.5px solid ${dia.bloqueios.length>0?C.danger+"60":C.border}`,borderRadius:10,padding:8,cursor:"pointer",minHeight:110,position:"relative"}}>
-              <div style={{color:dia.iso===today()?C.accent:C.text,fontWeight:700,fontSize:11,textTransform:"capitalize",marginBottom:6,textAlign:"center"}}>{dia.label}</div>
-              {dia.bloqueios.length>0&&
-                <div style={{position:"absolute",top:5,right:5,background:C.danger,borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  <I.Lock c="#FFFFFF" s={11}/>
-                </div>
-              }
-              {dia.ags.slice(0,3).map(a=>{const p=data.profissionais.find(pr=>pr.id===a.profissional_id);return(
-                <div key={a.id} title={`${a.hora} — ${a.paciente} (${p?.nome||"—"}) · ${a.servico||"—"}`} style={{background:(p?.cor||C.accent)+"18",borderLeft:`2px solid ${p?.cor||C.accent}`,borderRadius:4,padding:"3px 5px",marginBottom:3,fontSize:9}}>
-                  <div style={{color:C.text,fontWeight:600}}>{a.hora}</div>
-                  <div style={{color:C.text,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{a.paciente}</div>
-                  <div style={{color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p?.nome?.split(" ")[0]||"—"}</div>
-                </div>
-              );})}
-              {dia.ags.length>3&&<div style={{color:C.muted,fontSize:9,textAlign:"center"}}>+{dia.ags.length-3} mais</div>}
-              {dia.ags.length===0&&dia.bloqueios.length===0&&<div style={{color:C.muted,fontSize:9,textAlign:"center",marginTop:10}}>—</div>}
-              {dia.bloqueios.length>0&&<div style={{color:C.danger,fontSize:8,textAlign:"center",marginTop:4,fontWeight:600}}>{dia.bloqueios[0].prof?.nome?.split(" ")[0]||"Bloqueado"}</div>}
-            </div>
-          ))}
-        </div>
-      </>}
-
-      {/* ── VISÃO DIA (cards) ── */}
-      {visao==="dia"&&<>
+      {visao==="cards"?<>
+        {/* Navegador de dia */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px"}}>
           <button onClick={()=>mudarDia(-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={14} style={{transform:"rotate(180deg)"}}/></button>
           <div style={{textAlign:"center"}}>
@@ -1847,21 +1335,7 @@ function Agendamentos({data,insert,update,onRealizar}) {
           <button onClick={()=>mudarDia(1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={14}/></button>
         </div>
 
-        {bloqueiosDoDia.length>0&&
-          <div style={{background:C.danger+"0F",border:`1.5px solid ${C.danger}40`,borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",flexDirection:"column",gap:8}}>
-            {bloqueiosDoDia.map(b=>(
-              <div key={b.id} style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:32,height:32,borderRadius:"50%",background:C.danger,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  <I.Lock c="#FFFFFF" s={16}/>
-                </div>
-                <div>
-                  <div style={{color:C.danger,fontWeight:700,fontSize:13}}>{b.prof?.nome||"Profissional"} — agenda bloqueada</div>
-                  <div style={{color:C.text,fontSize:11,marginTop:1}}>{b.motivo||"Sem motivo informado"} · {fmtDate(b.data_inicio)} até {fmtDate(b.data_fim)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        }
+        <FilterBar filters={[{key:"profissional",type:"select",label:"Profissional",options:data.profissionais.map(p=>({value:String(p.id),label:p.nome}))}]} values={{profissional:filt.profissional}} onChange={ff}/>
 
         {doDia.length===0
           ? <div style={{background:C.card,border:`1px dashed ${C.border}`,borderRadius:13,padding:36,textAlign:"center"}}>
@@ -1873,8 +1347,6 @@ function Agendamentos({data,insert,update,onRealizar}) {
               {doDia.map(ag=>{
                 const p=data.profissionais.find(pr=>pr.id===ag.profissional_id);
                 const cor = p?.cor||C.accent;
-                const pac=data.pacientes.find(pc=>pc.id===ag.paciente_id);
-                const foneWhats=(pac?.whatsapp||pac?.telefone||"").replace(/\D/g,"");
                 return(
                   <div key={ag.id} className="fc" style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${cor}`,borderRadius:12,padding:14,boxShadow:"0 1px 8px #7C5CBF0A"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -1894,7 +1366,6 @@ function Agendamentos({data,insert,update,onRealizar}) {
                       <span style={{marginLeft:"auto",color:C.accent,fontWeight:700,fontSize:12}}>{fmt(ag.valor)}</span>
                     </div>
                     <div style={{display:"flex",gap:5}}>
-                      {foneWhats&&<a href={`https://wa.me/55${foneWhats}`} target="_blank" rel="noreferrer" title="Abrir conversa no WhatsApp" style={{background:C.success+"14",border:`1px solid ${C.success}30`,borderRadius:8,padding:"5px 9px",display:"flex",alignItems:"center",textDecoration:"none"}}><I.Whatsapp c={C.success} s={13}/></a>}
                       {ag.status==="aguardando"&&<Btn v="ok" onClick={()=>confirmar(ag.id)} style={{flex:1,justifyContent:"center",padding:"5px 0",fontSize:11}}><I.Check s={11}/> Confirmar</Btn>}
                       {(ag.status==="confirmado"||ag.status==="aguardando")&&<Btn v="i" onClick={()=>realizar(ag)} style={{flex:1,justifyContent:"center",padding:"5px 0",fontSize:11}}>Realizar</Btn>}
                       {ag.status!=="cancelado"&&ag.status!=="realizado"&&<Btn v="d" onClick={()=>cancelar(ag.id)} style={{padding:"5px 9px"}}><I.X s={11}/></Btn>}
@@ -1904,24 +1375,16 @@ function Agendamentos({data,insert,update,onRealizar}) {
               })}
             </div>
         }
-      </>}
-
-      {/* ── VISÃO LISTA ── */}
-      {visao==="lista"&&<>
+      </>:<>
         <FilterBar filters={[{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"},{key:"profissional",type:"select",label:"Profissional",options:data.profissionais.map(p=>({value:String(p.id),label:p.nome}))},{key:"procedimento",type:"select",label:"Procedimento",options:data.procedimentos.map(p=>({value:String(p.id),label:p.nome}))},{key:"status",type:"select",label:"Status",options:["aguardando","confirmado","realizado","cancelado"].map(s=>({value:s,label:s}))}]} values={filt} onChange={ff}/>
         <ST cols={["Paciente","Procedimento","Profissional","Data","Hora","Valor","Status","Ações"]}
-          rows={lista.map(ag=>{
-            const p=data.profissionais.find(p=>p.id===ag.profissional_id);
-            const pac=data.pacientes.find(pc=>pc.id===ag.paciente_id);
-            const foneWhats=(pac?.whatsapp||pac?.telefone||"").replace(/\D/g,"");
-            return[
+          rows={lista.map(ag=>{const p=data.profissionais.find(p=>p.id===ag.profissional_id);return[
             <span style={{fontWeight:600}}>{ag.paciente}</span>,ag.servico,
             <span style={{color:p?.cor||C.accent,fontWeight:600}}>{p?.nome?.split(" ").slice(0,2).join(" ")}</span>,
             fmtDate(ag.data),<span style={{fontWeight:700}}>{ag.hora}</span>,
             <span style={{color:C.accent,fontWeight:700}}>{fmt(ag.valor)}</span>,
             <Badge text={ag.status} color={sc[ag.status]||C.muted}/>,
             <div style={{display:"flex",gap:4}}>
-              {foneWhats&&<a href={`https://wa.me/55${foneWhats}`} target="_blank" rel="noreferrer" title="Abrir conversa no WhatsApp" style={{padding:"3px 7px",display:"flex",alignItems:"center"}}><I.Whatsapp c={C.success} s={12}/></a>}
               {ag.status==="aguardando"&&<Btn v="ok" onClick={()=>confirmar(ag.id)} style={{padding:"3px 7px"}}><I.Check s={11}/></Btn>}
               {(ag.status==="confirmado"||ag.status==="aguardando")&&<Btn v="i" onClick={()=>realizar(ag)} style={{padding:"3px 7px",fontSize:10}}>Realizar</Btn>}
               {ag.status!=="cancelado"&&ag.status!=="realizado"&&<Btn v="d" onClick={()=>cancelar(ag.id)} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>}
@@ -1930,7 +1393,6 @@ function Agendamentos({data,insert,update,onRealizar}) {
         />
       </>}
 
-      {/* MODAL NOVO AGENDAMENTO */}
       {modal&&<Mod title="Novo Agendamento" onClose={()=>setModal(false)}>
         <PacienteBusca pacientes={data.pacientes} value={form.paciente_id} insert={insert}
           onChange={(id,nome)=>setForm(f=>({...f,paciente_id:id,paciente:nome}))}/>
@@ -1942,27 +1404,9 @@ function Agendamentos({data,insert,update,onRealizar}) {
           <Inp label="Duração (min)" type="number" value={form.duracao_minutos} onChange={e=>setForm(f=>({...f,duracao_minutos:e.target.value}))}/>
         </div>
         <TA label="Observações" value={form.observacoes} onChange={e=>setForm(f=>({...f,observacoes:e.target.value}))} placeholder="Observações sobre o agendamento..."/>
-        {erroSalvar&&<div style={{background:C.danger+"14",border:`1px solid ${C.danger}30`,borderRadius:8,padding:"9px 12px",marginBottom:8,color:C.danger,fontSize:12}}>{erroSalvar}</div>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
           <Btn v="g" onClick={()=>setModal(false)}>Cancelar</Btn>
-          <Btn onClick={salvar} disabled={!form.paciente_id||!form.procedimento_id||!form.profissional_id||salvando}>
-            {salvando?<><Spin s={12} c="#FFFFFF"/>Salvando...</>:<><I.Check s={12}/> Agendar</>}
-          </Btn>
-        </div>
-      </Mod>}
-
-      {/* MODAL BLOQUEAR PERÍODO */}
-      {bloqueioModal&&<Mod title="Bloquear Período da Agenda" onClose={()=>setBloqueioModal(false)}>
-        <p style={{color:C.muted,fontSize:12,marginBottom:12}}>Use para férias, folgas ou qualquer período em que o profissional não deve receber agendamentos.</p>
-        <Sel label="Profissional" value={formBloqueio.profissional_id} onChange={e=>setFormBloqueio(f=>({...f,profissional_id:e.target.value}))} options={[{value:"",label:"Selecione..."}, ...data.profissionais.map(p=>({value:p.id,label:p.nome}))]}/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <Inp label="De" type="date" value={formBloqueio.data_inicio} onChange={e=>setFormBloqueio(f=>({...f,data_inicio:e.target.value}))}/>
-          <Inp label="Até" type="date" value={formBloqueio.data_fim} onChange={e=>setFormBloqueio(f=>({...f,data_fim:e.target.value}))}/>
-        </div>
-        <Inp label="Motivo (opcional)" value={formBloqueio.motivo} onChange={e=>setFormBloqueio(f=>({...f,motivo:e.target.value}))} placeholder="Ex: Férias, congresso..."/>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
-          <Btn v="g" onClick={()=>setBloqueioModal(false)}>Cancelar</Btn>
-          <Btn v="d" onClick={salvarBloqueio} disabled={!formBloqueio.profissional_id}><I.Lock s={12}/> Bloquear</Btn>
+          <Btn onClick={salvar} disabled={!form.paciente_id||!form.procedimento_id||!form.profissional_id}><I.Check s={12}/> Agendar</Btn>
         </div>
       </Mod>}
     </div>
@@ -1970,51 +1414,17 @@ function Agendamentos({data,insert,update,onRealizar}) {
 }
 
 
-
 /* ─── ATENDIMENTOS ───────────────────────────────────────────── */
-function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
-  const isSupervisor = !user || user.role !== "profissional";
-  const [modal,setModal] = useState(false); // false | "novo" | {id}
-  const [editingId,setEditingId] = useState(null); // id do atendimento em edição (já existe no banco)
-  const [receberModal,setReceberModal] = useState(null); // atendimento aguardando confirmação de recebimento
-  const [contaEscolhida,setContaEscolhida] = useState("");
-  const [recebendo,setRecebendo] = useState(false);
+function Atendimentos({data,insert,update}) {
+  const [modal,setModal] = useState(false);
   const [filt,setFilt] = useState({profissional:"",de:"",ate:"",pago:""});
   const ff = (k,v) => setFilt(p=>({...p,[k]:v}));
 
   // Cabeçalho do atendimento
-  const [cab,setCab] = useState({paciente_id:"",paciente:"",profissional_id:"",data:today(),desconto:"0",forma_pagamento_id:"",conta_id:"",observacoes:""});
+  const [cab,setCab] = useState({paciente_id:"",paciente:"",profissional_id:"",data:today(),desconto:"0",pago:false,forma_pagamento_id:"",conta_id:"",observacoes:""});
   // Itens do atendimento (produtos e procedimentos)
   const [itens,setItens] = useState([]);
   const fc = (k,v) => setCab(p=>({...p,[k]:v}));
-
-  const atendimentoEmEdicao = editingId ? data.atendimentos.find(a=>a.id===editingId) : null;
-  const somenteLeitura = !!atendimentoEmEdicao && atendimentoEmEdicao.status!=="aberto";
-
-  /* Abre um atendimento existente pra edição, carregando cabeçalho e itens já salvos */
-  const abrirEdicao = (at) => {
-    setCab({paciente_id:at.paciente_id||"",paciente:at.paciente||"",profissional_id:at.profissional_id||"",data:at.data||today(),desconto:String(at.desconto||0),forma_pagamento_id:at.forma_pagamento_id||"",conta_id:at.conta_id||"",observacoes:at.observacoes||""});
-    const itensExistentes = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id).map(i=>({tipo:i.tipo,ref_id:i.tipo==="procedimento"?i.procedimento_id:i.produto_id,descricao:i.descricao,quantidade:i.quantidade,valor_unitario:i.valor_unitario,valor_total:i.valor_total}));
-    setItens(itensExistentes.length>0?itensExistentes:[{tipo:"procedimento",ref_id:"",descricao:"",quantidade:1,valor_unitario:0,valor_total:0}]);
-    setEditingId(at.id);
-    setModal({id:at.id});
-  };
-
-  /* Abre automaticamente quando a Agenda manda um atendimento recém-criado (botão "Realizar").
-     Usa os objetos vindos direto da criação (não busca em "data") porque o insert() que os
-     criou disparou um load() em segundo plano ainda não concluído — "data" nesse instante
-     pode não conter o atendimento novo ainda, e um find() falharia silenciosamente. */
-  useEffect(()=>{
-    if(abrirDados?.atendimento){
-      const at = abrirDados.atendimento;
-      setCab({paciente_id:at.paciente_id||"",paciente:at.paciente||"",profissional_id:at.profissional_id||"",data:at.data||today(),desconto:String(at.desconto||0),forma_pagamento_id:at.forma_pagamento_id||"",conta_id:at.conta_id||"",observacoes:at.observacoes||""});
-      const itensRecebidos = (abrirDados.itens||[]).map(i=>({tipo:i.tipo,ref_id:i.tipo==="procedimento"?i.procedimento_id:i.produto_id,descricao:i.descricao,quantidade:i.quantidade,valor_unitario:i.valor_unitario,valor_total:i.valor_total}));
-      setItens(itensRecebidos.length>0?itensRecebidos:[{tipo:"procedimento",ref_id:"",descricao:"",quantidade:1,valor_unitario:0,valor_total:0}]);
-      setEditingId(at.id);
-      setModal({id:at.id});
-      onAbriu?.();
-    }
-  },[abrirDados]); // eslint-disable-line
 
   const addItem = () => setItens(l=>[...l,{tipo:"procedimento",ref_id:"",descricao:"",quantidade:1,valor_unitario:0,valor_total:0}]);
 
@@ -2047,61 +1457,20 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
     if(filt.profissional) l=l.filter(a=>String(a.profissional_id)===filt.profissional);
     if(filt.de) l=l.filter(a=>a.data>=filt.de);
     if(filt.ate) l=l.filter(a=>a.data<=filt.ate);
-    if(filt.status) l=l.filter(a=>(a.status||"fechado")===filt.status);
+    if(filt.pago==="sim") l=l.filter(a=>a.pago);
+    if(filt.pago==="nao") l=l.filter(a=>!a.pago);
     return l.sort((a,b)=>b.data.localeCompare(a.data));
   },[data.atendimentos,filt]);
 
   const totalRec = lista.reduce((s,a)=>s+(Number(a.valor_final||a.valor)||0),0);
   const totalPago = lista.filter(a=>a.pago).reduce((s,a)=>s+(Number(a.valor_final||a.valor)||0),0);
 
-  /* Recebimento — só supervisor. Roteia o valor conforme a forma de pagamento:
-     dinheiro cai direto no Caixa Mestre; as demais formas usam a conta escolhida
-     no fechamento do atendimento. */
-  /* Sugere a conta de destino conforme a forma de pagamento negociada no atendimento:
-     dinheiro sempre cai no Caixa Mestre; as demais formas usam a conta escolhida no fechamento
-     (mas o caixa pode ajustar na hora de confirmar, no modal de recebimento). */
-  const contaSugerida = (at) => {
-    const contaCaixaMestre = data.contas_bancarias.find(c=>c.tipo==="caixa_master");
-    const fp = data.formas_pagamento.find(f=>f.id===at.forma_pagamento_id);
-    const ehDinheiro = (fp?.tipo||"").toLowerCase()==="dinheiro";
-    return ehDinheiro ? contaCaixaMestre : data.contas_bancarias.find(c=>c.id===at.conta_id);
-  };
-
-  const abrirReceberModal = (at) => {
-    const sugerida = contaSugerida(at);
-    setContaEscolhida(sugerida?String(sugerida.id):"");
-    setReceberModal(at);
-  };
-
-  const receber = async (at, contaId) => {
-    const contaDestino = data.contas_bancarias.find(c=>c.id===parseInt(contaId));
-    const fp = data.formas_pagamento.find(f=>f.id===at.forma_pagamento_id);
-    if(!contaDestino){ alert("Selecione a conta que vai receber o valor."); return; }
-
-    const valor = Number(at.valor_final||at.valor)||0;
-    const catAtendimentos = (data.categorias_financeiras||[]).find(c=>c.tipo==="receita"&&c.nome==="Atendimentos");
-    const atItens = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
-    const descNomes = atItens.length>0 ? atItens.map(i=>i.descricao).join(", ") : at.servico;
-
-    /* A conta a receber nasce agora, já quitada — é o registro do recebimento em si */
-    await insert("contas_receber",{
-      paciente:at.paciente, paciente_id:at.paciente_id, atendimento_id:at.id,
-      descricao:`Atendimento — ${descNomes}`, valor,
-      vencimento:today(), categoria_id:catAtendimentos?.id||null,
-      data_lancamento:today(), data_competencia:at.data,
-      status:"quitado", forma_pagamento:fp?.nome||"", forma_pagamento_id:at.forma_pagamento_id||null,
-      conta_id:contaDestino.id, data_baixa:today(),
-    });
-    await update("atendimentos", at.id, {status:"recebido", pago:true});
-    await insert("movimentacoes",{conta_id:contaDestino.id, tipo:"entrada", origem:"atendimento", origem_id:at.id, descricao:`Recebimento — ${at.paciente}`, valor, data:today()});
-    await gerarComissaoSeAplicavel(at);
-  };
-
-  const estornar = async (at) => {
-    await update("atendimentos", at.id, {status:"fechado", pago:false});
-    /* Desfaz o recebimento — cancela a conta a receber criada no ato de receber */
-    const cr = (data.contas_receber||[]).find(c=>c.atendimento_id===at.id && c.status==="quitado");
-    if(cr) await update("contas_receber", cr.id, {status:"cancelado"});
+  const toggle = id => {
+    const at=data.atendimentos.find(a=>a.id===id);
+    const novoPago = !at.pago;
+    update("atendimentos",id,{pago:novoPago});
+    /* Gera comissão pendente quando o atendimento passa a "pago" (só profissionais por %) */
+    if(novoPago) gerarComissaoSeAplicavel(at);
   };
 
   /* Gera um registro de comissão pendente para o profissional, se ele for remunerado por percentual */
@@ -2122,66 +1491,45 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
   };
 
   const abrirModal = () => {
-    setCab({paciente_id:"",paciente:"",profissional_id:"",data:today(),desconto:"0",forma_pagamento_id:"",conta_id:"",observacoes:""});
+    setCab({paciente_id:"",paciente:"",profissional_id:"",data:today(),desconto:"0",pago:false,forma_pagamento_id:"",conta_id:"",observacoes:""});
     setItens([{tipo:"procedimento",ref_id:"",descricao:"",quantidade:1,valor_unitario:0,valor_total:0}]);
-    setEditingId(null);
-    setModal("novo");
+    setModal(true);
   };
 
-  /* Salva cabeçalho + itens enquanto o atendimento está "aberto" (rascunho editável).
-     Não baixa estoque nem mexe em financeiro — isso só acontece em fecharAtendimento. */
-  const salvarRascunho = async () => {
-    if(!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)) return null;
+  const salvar = async () => {
+    if(!cab.paciente_id||!cab.profissional_id||itens.length===0) return;
     const fp = data.formas_pagamento.find(f=>f.id===parseInt(cab.forma_pagamento_id));
     const descNomes = itens.map(i=>i.descricao).filter(Boolean).join(", ");
-    const camposCab = {
+
+    // 1. Salvar cabeçalho do atendimento
+    const novoAt = await insert("atendimentos",{
       paciente_id:parseInt(cab.paciente_id), paciente:cab.paciente,
       profissional_id:parseInt(cab.profissional_id),
       servico:descNomes, data:cab.data,
       valor:totalItens, desconto:desconto, valor_final:valorFinal,
+      pago:cab.pago,
       forma_pagamento_id:cab.forma_pagamento_id?parseInt(cab.forma_pagamento_id):null,
       forma_pagamento:fp?.nome||"",
       conta_id:cab.conta_id?parseInt(cab.conta_id):null,
       observacoes:cab.observacoes,
-    };
-    let atId = editingId;
-    if(!atId){
-      const novoAt = await insert("atendimentos",{...camposCab, pago:false, status:"aberto"});
-      atId = novoAt?.id;
-      setEditingId(atId);
-      setModal({id:atId});
-    } else {
-      await update("atendimentos", atId, camposCab);
-    }
-    if(atId){
-      // Substitui os itens (apaga e reinsere) — evita duplicar a cada salvamento intermediário
-      await fetch(`${SUPABASE_URL}/rest/v1/atendimento_itens?atendimento_id=eq.${atId}`,{method:"DELETE",headers:getHeaders()});
-      for(const item of itens){
-        if(!item.ref_id) continue;
-        await insert("atendimento_itens",{
-          atendimento_id:atId, tipo:item.tipo,
-          procedimento_id:item.tipo==="procedimento"?parseInt(item.ref_id):null,
-          produto_id:item.tipo==="produto"?parseInt(item.ref_id):null,
-          descricao:item.descricao, quantidade:Number(item.quantidade),
-          valor_unitario:Number(item.valor_unitario), valor_total:Number(item.valor_total),
-        });
-      }
-    }
-    return atId;
-  };
+    });
+    const atId = novoAt?.id || Date.now();
 
-  /* Fecha o atendimento: baixa estoque (uma única vez), cria a conta a receber
-     com a forma de pagamento negociada, e trava a edição. A partir daqui, só o
-     Caixa (supervisor) mexe no atendimento, pela ação "Receber". */
-  const fecharAtendimento = async () => {
-    const atId = await salvarRascunho();
-    if(!atId) return;
-    const itensAtuais = itens.filter(i=>i.ref_id);
+    // 2. Salvar itens e baixar estoque
+    for(const item of itens) {
+      if(!item.ref_id) continue;
+      await insert("atendimento_itens",{
+        atendimento_id:atId, tipo:item.tipo,
+        procedimento_id:item.tipo==="procedimento"?parseInt(item.ref_id):null,
+        produto_id:item.tipo==="produto"?parseInt(item.ref_id):null,
+        descricao:item.descricao, quantidade:Number(item.quantidade),
+        valor_unitario:Number(item.valor_unitario), valor_total:Number(item.valor_total),
+      });
 
-    for(const item of itensAtuais){
-      if(item.tipo==="procedimento"){
+      if(item.tipo==="procedimento") {
+        // Baixa insumos vinculados ao procedimento
         const insumos = (data.procedimento_insumos||[]).filter(pi=>pi.procedimento_id===parseInt(item.ref_id));
-        for(const ins of insumos){
+        for(const ins of insumos) {
           const prod = data.produtos.find(p=>p.id===ins.produto_id);
           if(!prod) continue;
           const qtdBaixa = (Number(ins.quantidade)||0)*(Number(item.quantidade)||1);
@@ -2196,9 +1544,11 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
           });
         }
       }
-      if(item.tipo==="produto"){
+
+      if(item.tipo==="produto") {
+        // Baixa direta do produto vendido
         const prod = data.produtos.find(p=>p.id===parseInt(item.ref_id));
-        if(prod){
+        if(prod) {
           const qtdBaixa = Number(item.quantidade)||1;
           const novoEst = Math.max(0,(Number(prod.estoque_atual)||0)-qtdBaixa);
           await update("produtos",prod.id,{estoque_atual:novoEst});
@@ -2213,10 +1563,35 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
       }
     }
 
-    /* A conta a receber só nasce quando o caixa efetivamente recebe (função receber,
-       abaixo) — fechar o atendimento só trava a edição e baixa o estoque. */
-    await update("atendimentos", atId, {status:"fechado"});
-    setModal(false); setEditingId(null);
+    // 3. Conta a receber (sempre cria, mesmo se pago — marca status)
+    await insert("contas_receber",{
+      paciente:cab.paciente, paciente_id:parseInt(cab.paciente_id),
+      atendimento_id:atId,
+      descricao:`Atendimento — ${descNomes}`,
+      valor:valorFinal, vencimento:cab.data,
+      status:cab.pago?"quitado":"aberto",
+      forma_pagamento:fp?.nome||"",
+      forma_pagamento_id:cab.forma_pagamento_id?parseInt(cab.forma_pagamento_id):null,
+      conta_id:cab.conta_id?parseInt(cab.conta_id):null,
+      data_baixa:cab.pago?cab.data:null,
+    });
+
+    // 4. Movimentação financeira se pago
+    if(cab.pago && cab.conta_id) {
+      await insert("movimentacoes",{
+        conta_id:parseInt(cab.conta_id), tipo:"entrada",
+        origem:"atendimento", origem_id:atId,
+        descricao:`Recebimento — ${cab.paciente}`,
+        valor:valorFinal, data:cab.data,
+      });
+    }
+
+    // 5. Gera comissão pendente se já nasce pago
+    if(cab.pago) {
+      await gerarComissaoSeAplicavel({id:atId, profissional_id:parseInt(cab.profissional_id), paciente:cab.paciente, servico:descNomes, valor_final:valorFinal, data:cab.data});
+    }
+
+    setModal(false);
   };
 
   return (
@@ -2236,16 +1611,13 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
         {key:"de",type:"date",label:"De"},
         {key:"ate",type:"date",label:"Até"},
         {key:"profissional",type:"select",label:"Profissional",options:data.profissionais.map(p=>({value:String(p.id),label:p.nome}))},
-        {key:"status",type:"select",label:"Situação",options:[{value:"aberto",label:"Em Atendimento"},{value:"fechado",label:"Fechado (aguarda caixa)"},{value:"recebido",label:"Recebido"}]},
+        {key:"pago",type:"select",label:"Situação",options:[{value:"sim",label:"Pago"},{value:"nao",label:"Pendente"}]},
       ]} values={filt} onChange={ff}/>
 
       <ST cols={["Paciente","Serviços","Profissional","Data","Valor","Forma Pgto","Situação","Ação"]}
         rows={lista.map(at=>{
           const p=data.profissionais.find(p=>p.id===at.profissional_id);
           const atItens=(data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
-          const status = at.status||"fechado";
-          const statusLabel = {aberto:"Em Atendimento",fechado:"Aguarda Caixa",recebido:"Recebido"}[status]||status;
-          const statusCor = {aberto:C.info,fechado:C.warn,recebido:C.success}[status]||C.muted;
           return [
             <span style={{fontWeight:600}}>{at.paciente}</span>,
             <span style={{fontSize:11,color:C.muted}}>{atItens.length>0?atItens.map(i=>i.descricao).join(", "):at.servico}</span>,
@@ -2253,18 +1625,15 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
             fmtDate(at.data),
             <span style={{color:C.accent,fontWeight:700}}>{fmt(at.valor_final||at.valor)}</span>,
             <span style={{color:C.muted,fontSize:11}}>{at.forma_pagamento||"—"}</span>,
-            <Badge text={statusLabel} color={statusCor}/>,
-            <div style={{display:"flex",gap:4}}>
-              {status==="aberto"&&<Btn v="i" onClick={()=>abrirEdicao(at)} style={{padding:"3px 9px",fontSize:10}}><I.Edit s={11}/> Editar</Btn>}
-              {status==="fechado"&&isSupervisor&&<Btn v="ok" onClick={()=>abrirReceberModal(at)} style={{padding:"3px 9px",fontSize:10}}>Receber</Btn>}
-              {status==="recebido"&&isSupervisor&&<Btn v="g" onClick={()=>estornar(at)} style={{padding:"3px 9px",fontSize:10}}>Estornar</Btn>}
-              {status!=="aberto"&&<Btn v="g" onClick={()=>abrirEdicao(at)} style={{padding:"3px 7px"}}><I.Eye s={11}/></Btn>}
-            </div>
+            <Badge text={at.pago?"Pago":"Pendente"} color={at.pago?C.success:C.warn}/>,
+            <Btn v={at.pago?"g":"ok"} onClick={()=>toggle(at.id)} style={{padding:"3px 9px",fontSize:10}}>
+              {at.pago?"Estornar":"Receber"}
+            </Btn>
           ];
         })}
       />
 
-      {modal&&<Mod title={somenteLeitura?`Atendimento — ${({fechado:"Aguardando Caixa",recebido:"Recebido"})[atendimentoEmEdicao?.status]||"Fechado"}`:"Atendimento"} onClose={()=>{setModal(false);setEditingId(null);}} full>
+      {modal&&<Mod title="Lançar Atendimento" onClose={()=>setModal(false)} full>
         {/* Cabeçalho */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
           <PacienteBusca pacientes={data.pacientes} value={cab.paciente_id} insert={insert}
@@ -2275,54 +1644,52 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
           <Inp label="Data do Atendimento" type="date" value={cab.data} onChange={e=>fc("data",e.target.value)}/>
         </div>
 
-        {somenteLeitura&&<div style={{background:C.warn+"12",border:`1px solid ${C.warn}30`,borderRadius:8,padding:"9px 12px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
-          <I.Lock c={C.warn} s={13}/><span style={{color:C.warn,fontSize:11}}>Atendimento fechado — não pode mais ser editado pela profissional. {isSupervisor?"Use \"Receber\" na lista pra dar baixa.":"Aguardando o caixa dar baixa no pagamento."}</span>
-        </div>}
-
         {/* Itens */}
         <div style={{background:C.surface,borderRadius:10,padding:13,marginBottom:14,border:`1px solid ${C.border}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <span style={{color:C.text,fontSize:12,fontWeight:700}}>Produtos e Procedimentos</span>
-            {!somenteLeitura&&<Btn v="g" onClick={addItem} style={{fontSize:11,padding:"4px 10px"}}><I.Plus s={11}/> Adicionar item</Btn>}
+            <Btn v="g" onClick={addItem} style={{fontSize:11,padding:"4px 10px"}}><I.Plus s={11}/> Adicionar item</Btn>
           </div>
 
           {itens.length===0&&<p style={{color:C.muted,fontSize:12,textAlign:"center",padding:"12px 0"}}>Nenhum item adicionado. Clique em "Adicionar item".</p>}
 
-          {itens.length>0&&<div style={{display:"grid",gridTemplateColumns:"130px 1fr 70px 110px 110px 36px",gap:8,marginBottom:6}}>
-            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase"}}>Tipo</label>
-            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase"}}>Produto / Procedimento</label>
-            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",textAlign:"center"}}>Qtd.</label>
-            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase"}}>Valor Unit. R$</label>
-            <label style={{color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",textAlign:"right"}}>Subtotal</label>
-            <span/>
-          </div>}
-
           {itens.map((item,idx)=>(
-            <div key={idx} style={{display:"grid",gridTemplateColumns:"130px 1fr 70px 110px 110px 36px",gap:8,marginBottom:8,alignItems:"center"}}>
-              <select value={item.tipo} disabled={somenteLeitura} onChange={e=>updItem(idx,"tipo",e.target.value)}
-                style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}>
-                <option value="procedimento">Procedimento</option>
-                <option value="produto">Produto</option>
-              </select>
-              <select value={item.ref_id} disabled={somenteLeitura} onChange={e=>updItem(idx,"ref_id",e.target.value)}
-                style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}>
-                <option value="">Selecione...</option>
-                {item.tipo==="procedimento"
-                  ? data.procedimentos.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco_venda)}</option>)
-                  : data.produtos.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco_venda||p.custo_unitario)}</option>)
-                }
-              </select>
-              <input type="number" disabled={somenteLeitura} value={item.quantidade} onChange={e=>updItem(idx,"quantidade",e.target.value)} style={{width:"100%",textAlign:"center",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 6px",color:C.text,fontSize:12}}/>
-              <input type="number" disabled={somenteLeitura} value={item.valor_unitario} onChange={e=>updItem(idx,"valor_unitario",e.target.value)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}/>
-              <div style={{background:C.accentSoft,border:`1px solid ${C.accent}30`,borderRadius:8,padding:"9px 10px",color:C.accent,fontWeight:700,fontSize:13,textAlign:"right"}}>
-                {fmt(item.valor_total)}
+            <div key={idx} style={{display:"grid",gridTemplateColumns:"120px 1fr 80px 110px 110px 36px",gap:8,marginBottom:8,alignItems:"end"}}>
+              <div>
+                {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Tipo</label>}
+                <select value={item.tipo} onChange={e=>updItem(idx,"tipo",e.target.value)}
+                  style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}>
+                  <option value="procedimento">Procedimento</option>
+                  <option value="produto">Produto</option>
+                </select>
               </div>
-              {!somenteLeitura
-                ? <button onClick={()=>rmItem(idx)} style={{width:"100%",height:38,background:C.danger+"18",border:`1px solid ${C.danger}30`,borderRadius:8,color:C.danger,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    <I.X c={C.danger} s={13}/>
-                  </button>
-                : <span/>
-              }
+              <div>
+                {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>
+                  {item.tipo==="procedimento"?"Procedimento":"Produto"}
+                </label>}
+                <select value={item.ref_id} onChange={e=>updItem(idx,"ref_id",e.target.value)}
+                  style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text,fontSize:12}}>
+                  <option value="">Selecione...</option>
+                  {item.tipo==="procedimento"
+                    ? data.procedimentos.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco_venda)}</option>)
+                    : data.produtos.filter(p=>p.ativo).map(p=><option key={p.id} value={p.id}>{p.nome} — {fmt(p.preco_venda||p.custo_unitario)}</option>)
+                  }
+                </select>
+              </div>
+              <Inp label={idx===0?"Qtd.":""} type="number" value={item.quantidade} onChange={e=>updItem(idx,"quantidade",e.target.value)} style={{textAlign:"center"}}/>
+              <Inp label={idx===0?"Valor Unit. R$":""} type="number" value={item.valor_unitario} onChange={e=>updItem(idx,"valor_unitario",e.target.value)}/>
+              <div>
+                {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Subtotal</label>}
+                <div style={{background:C.accentSoft,border:`1px solid ${C.accent}30`,borderRadius:8,padding:"9px 10px",color:C.accent,fontWeight:700,fontSize:13,textAlign:"right"}}>
+                  {fmt(item.valor_total)}
+                </div>
+              </div>
+              <div style={{paddingBottom:0}}>
+                {idx===0&&<div style={{height:22,marginBottom:4}}/>}
+                <button onClick={()=>rmItem(idx)} style={{width:"100%",height:38,background:C.danger+"18",border:`1px solid ${C.danger}30`,borderRadius:8,color:C.danger,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <I.X c={C.danger} s={13}/>
+                </button>
+              </div>
             </div>
           ))}
 
@@ -2334,77 +1701,39 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
 
         {/* Pagamento */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:12}}>
-          <Inp label="Desconto (R$)" type="number" value={cab.desconto} onChange={e=>fc("desconto",e.target.value)} disabled={somenteLeitura}/>
+          <Inp label="Desconto (R$)" type="number" value={cab.desconto} onChange={e=>fc("desconto",e.target.value)}/>
           <div>
             <label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Valor Final</label>
             <div style={{background:C.accentSoft,border:`1px solid ${C.accent}`,borderRadius:8,padding:"9px 12px",color:C.accent,fontWeight:700,fontSize:15,textAlign:"center"}}>
               {fmt(valorFinal)}
             </div>
           </div>
-          <Sel label="Forma de Pagamento" value={cab.forma_pagamento_id} disabled={somenteLeitura}
+          <Sel label="Forma de Pagamento" value={cab.forma_pagamento_id}
             onChange={e=>fc("forma_pagamento_id",e.target.value)}
             options={[{value:"",label:"Selecione..."}, ...data.formas_pagamento.map(f=>({value:f.id,label:f.nome}))]}/>
-          <Sel label="Conta de Destino" value={cab.conta_id} disabled={somenteLeitura}
+          <Sel label="Conta de Destino" value={cab.conta_id}
             onChange={e=>fc("conta_id",e.target.value)}
             options={[{value:"",label:"Selecione..."}, ...data.contas_bancarias.map(c=>({value:c.id,label:`${c.nome} (${c.tipo})`}))]}/>
         </div>
 
-        <TA label="Observações" value={cab.observacoes} onChange={e=>fc("observacoes",e.target.value)} placeholder="Observações sobre o atendimento..." disabled={somenteLeitura}/>
-
-        {!somenteLeitura&&<div style={{background:C.info+"10",border:`1px solid ${C.info}25`,borderRadius:8,padding:"8px 12px",marginTop:4,marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
-          <I.Warn c={C.info} s={13}/>
-          <span style={{color:C.info,fontSize:11}}>
-            "Salvar Rascunho" só guarda o andamento (dá pra continuar editando). Ao <strong>Fechar Atendimento</strong>: o <strong>estoque</strong> é baixado e some a possibilidade de editar — o caixa que confirma o recebimento daqui pra frente, e é aí que a <strong>conta a receber</strong> é criada.
-          </span>
-        </div>}
-
-        {!somenteLeitura&&<div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <Btn v="g" onClick={()=>{setModal(false);setEditingId(null);}}>Cancelar</Btn>
-          <Btn v="g" onClick={salvarRascunho} disabled={!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)}>
-            Salvar Rascunho
-          </Btn>
-          <Btn onClick={fecharAtendimento} disabled={!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)||!cab.forma_pagamento_id}>
-            <I.Lock s={12}/> Fechar Atendimento
-          </Btn>
-        </div>}
-        {somenteLeitura&&<div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <Btn v="g" onClick={()=>{setModal(false);setEditingId(null);}}>Fechar janela</Btn>
-        </div>}
-      </Mod>}
-
-      {receberModal&&<Mod title="Confirmar Recebimento" onClose={()=>{setReceberModal(null);setContaEscolhida("");}}>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:13,marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <span style={{color:C.muted,fontSize:11}}>Paciente</span>
-            <span style={{color:C.text,fontWeight:600,fontSize:12}}>{receberModal.paciente}</span>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <span style={{color:C.muted,fontSize:11}}>Forma de pagamento</span>
-            <span style={{color:C.text,fontWeight:600,fontSize:12}}>{receberModal.forma_pagamento||"—"}</span>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between"}}>
-            <span style={{color:C.muted,fontSize:11}}>Valor a receber</span>
-            <span style={{color:C.accent,fontWeight:700,fontSize:15}}>{fmt(receberModal.valor_final||receberModal.valor)}</span>
-          </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <input type="checkbox" checked={cab.pago} onChange={e=>fc("pago",e.target.checked)} id="pgAt" style={{accentColor:C.accent,width:16,height:16}}/>
+          <label htmlFor="pgAt" style={{color:C.text,fontSize:13,cursor:"pointer"}}>Já recebeu o pagamento</label>
         </div>
 
-        <Sel label="Vai cair em qual conta?" value={contaEscolhida} onChange={e=>setContaEscolhida(e.target.value)}
-          options={[{value:"",label:"Selecione..."}, ...data.contas_bancarias.map(c=>({value:String(c.id),label:`${c.nome} (${c.tipo})`}))]}/>
+        <TA label="Observações" value={cab.observacoes} onChange={e=>fc("observacoes",e.target.value)} placeholder="Observações sobre o atendimento..."/>
 
-        {!contaSugerida(receberModal)&&<div style={{background:C.warn+"12",border:`1px solid ${C.warn}30`,borderRadius:8,padding:"8px 12px",marginTop:10,display:"flex",gap:8,alignItems:"center"}}>
-          <I.Warn c={C.warn} s={13}/>
-          <span style={{color:C.warn,fontSize:11}}>Este atendimento não tinha conta de destino definida no fechamento — escolha manualmente onde o valor vai entrar.</span>
-        </div>}
+        <div style={{background:C.info+"10",border:`1px solid ${C.info}25`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+          <I.Warn c={C.info} s={13}/>
+          <span style={{color:C.info,fontSize:11}}>
+            Ao salvar: <strong>estoque</strong> dos insumos será baixado automaticamente · <strong>Conta a receber</strong> será criada · Se marcado como pago, <strong>movimentação financeira</strong> será registrada.
+          </span>
+        </div>
 
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
-          <Btn v="g" onClick={()=>{setReceberModal(null);setContaEscolhida("");}}>Cancelar</Btn>
-          <Btn v="ok" disabled={!contaEscolhida||recebendo} onClick={async()=>{
-            setRecebendo(true);
-            await receber(receberModal, contaEscolhida);
-            setRecebendo(false);
-            setReceberModal(null); setContaEscolhida("");
-          }}>
-            <I.Check s={12}/> {recebendo?"Recebendo...":"Confirmar Recebimento"}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn v="g" onClick={()=>setModal(false)}>Cancelar</Btn>
+          <Btn onClick={salvar} disabled={!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)}>
+            <I.Check s={12}/> Salvar Atendimento
           </Btn>
         </div>
       </Mod>}
@@ -2685,18 +2014,6 @@ function Procedimentos({data,insert,update,remove}) {
   const [form,setForm]=useState(init);const [insumos,setInsumos]=useState([]);
   const [sim,setSim]=useState({dias_uteis:22,horas_dia:8,duracao:60});
   const ff=(k,v)=>setForm(p=>({...p,[k]:v}));
-
-  /* Despesas fixas mensais = contas a pagar recorrentes com vencimento no mês corrente
-     (se ainda não houver nenhuma lançada neste mês, cai para o mês mais recente com lançamentos) */
-  const despesasFixasMes = useMemo(()=>{
-    const {de,ate}=mesAtualRange();
-    const doMes=(data.contas_pagar||[]).filter(c=>c.recorrente&&c.vencimento>=de&&c.vencimento<=ate);
-    if(doMes.length>0) return doMes.reduce((s,d)=>s+(Number(d.valor)||0),0);
-    const recorrentes=(data.contas_pagar||[]).filter(c=>c.recorrente).sort((a,b)=>(b.vencimento||"").localeCompare(a.vencimento||""));
-    if(recorrentes.length===0) return 0;
-    const ultimoMes=recorrentes[0].vencimento.slice(0,7);
-    return recorrentes.filter(c=>c.vencimento.slice(0,7)===ultimoMes).reduce((s,d)=>s+(Number(d.valor)||0),0);
-  },[data.contas_pagar]);
   const calcCustos=(f)=>{const ci=insumos.reduce((s,i)=>s+(Number(i.custo_total)||0),0);const pv=Number(f.preco_venda)||0;const cf=Number(f.custo_fixo)||0;const ct=ci+cf;const mg=pv>0?Math.round((pv-ct)/pv*100):0;return{custo_insumos:ci,custo_total:ct,margem:mg};};
 
   const abrir=(item)=>{
@@ -2709,7 +2026,7 @@ function Procedimentos({data,insert,update,remove}) {
   const updInsumo=(idx,k,v)=>setInsumos(l=>l.map((item,i)=>{if(i!==idx)return item;const updated={...item,[k]:v};if(k==="produto_id"){const prod=data.produtos.find(p=>p.id===parseInt(v));if(prod){updated.custo_unitario=prod.custo_unitario;updated.produto_nome=prod.nome;updated.custo_total=(Number(updated.quantidade)||1)*prod.custo_unitario;}}if(k==="quantidade"||k==="custo_unitario"){updated.custo_total=(Number(updated.quantidade)||0)*(Number(updated.custo_unitario)||0);}return updated;}));
   const rmInsumo=(idx)=>setInsumos(l=>l.filter((_,i)=>i!==idx));
 
-  const calcSimulador=()=>{const tf=despesasFixasMes;const horasMes=(Number(sim.dias_uteis)||22)*(Number(sim.horas_dia)||8);const custoHora=horasMes>0?tf/horasMes:0;const duracaoH=(Number(sim.duracao)||60)/60;const custoFixo=custoHora*duracaoH;setForm(p=>({...p,custo_fixo:custoFixo.toFixed(2),duracao_minutos:Number(sim.duracao)}));setSimModal(false);};
+  const calcSimulador=()=>{const tf=data.despesas_fixas.reduce((s,d)=>s+(Number(d.valor)||0),0);const horasMes=(Number(sim.dias_uteis)||22)*(Number(sim.horas_dia)||8);const custoHora=horasMes>0?tf/horasMes:0;const duracaoH=(Number(sim.duracao)||60)/60;const custoFixo=custoHora*duracaoH;setForm(p=>({...p,custo_fixo:custoFixo.toFixed(2),duracao_minutos:Number(sim.duracao)}));setSimModal(false);};
 
   const salvar=async()=>{
     const custos=calcCustos(form);
@@ -2720,7 +2037,7 @@ function Procedimentos({data,insert,update,remove}) {
       procId=editing.id;
       // Remove todos os insumos antigos antes de salvar os novos (evita duplicatas)
       if(!DEMO_MODE){
-        await fetch(`${SUPABASE_URL}/rest/v1/procedimento_insumos?procedimento_id=eq.${procId}`,{method:"DELETE",headers:getHeaders()});
+        await fetch(`${SUPABASE_URL}/rest/v1/procedimento_insumos?procedimento_id=eq.${procId}`,{method:"DELETE",headers:sb.h});
       }
     } else {
       const novo=await insert("procedimentos",rec);
@@ -2806,15 +2123,15 @@ function Procedimentos({data,insert,update,remove}) {
       {/* SIMULADOR */}
       {simModal&&<Mod title="Simulador de Custo Fixo" onClose={()=>setSimModal(false)}>
         <div style={{background:C.surface,borderRadius:9,padding:12,marginBottom:14}}>
-          <div style={{color:C.accent,fontSize:11,fontWeight:700,marginBottom:6}}>Despesas fixas mensais: {fmt(despesasFixasMes)}</div>
-          <div style={{color:C.muted,fontSize:11}}>O simulador calcula o custo das despesas fixas proporcionais ao tempo do procedimento. {despesasFixasMes===0&&"Cadastre despesas recorrentes em Financeiro → Contas a Pagar para usar o simulador."}</div>
+          <div style={{color:C.accent,fontSize:11,fontWeight:700,marginBottom:6}}>Despesas fixas mensais: {fmt(data.despesas_fixas.reduce((s,d)=>s+(Number(d.valor)||0),0))}</div>
+          <div style={{color:C.muted,fontSize:11}}>O simulador calcula o custo das despesas fixas proporcionais ao tempo do procedimento.</div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
           <Inp label="Dias úteis/mês" type="number" value={sim.dias_uteis} onChange={e=>setSim(s=>({...s,dias_uteis:e.target.value}))}/>
           <Inp label="Horas/dia" type="number" value={sim.horas_dia} onChange={e=>setSim(s=>({...s,horas_dia:e.target.value}))}/>
           <Inp label="Duração (min)" type="number" value={sim.duracao} onChange={e=>setSim(s=>({...s,duracao:e.target.value}))}/>
         </div>
-        {(()=>{const tf=despesasFixasMes;const hm=(Number(sim.dias_uteis)||22)*(Number(sim.horas_dia)||8);const ch=hm>0?tf/hm:0;const cf=ch*(Number(sim.duracao)||60)/60;return(
+        {(()=>{const tf=data.despesas_fixas.reduce((s,d)=>s+(Number(d.valor)||0),0);const hm=(Number(sim.dias_uteis)||22)*(Number(sim.horas_dia)||8);const ch=hm>0?tf/hm:0;const cf=ch*(Number(sim.duracao)||60)/60;return(
           <div style={{background:C.accentSoft,borderRadius:9,padding:12,margin:"12px 0",textAlign:"center"}}>
             <div style={{color:C.muted,fontSize:11,marginBottom:4}}>Custo fixo calculado para este procedimento</div>
             <div style={{color:C.accent,fontSize:24,fontWeight:700}}>{fmt(cf)}</div>
@@ -3058,93 +2375,6 @@ function Estoque({data,insert,update}) {
 }
 
 
-/* ─── GRÁFICO DE FLUXO DE CAIXA ───────────────────────────────────
-   Dois painéis empilhados compartilhando o eixo X (nunca dois eixos Y
-   na mesma escala): barras divergentes de entradas/saídas por período
-   em cima, linha de saldo acumulado embaixo — cada um com sua própria
-   escala, já que os valores têm ordens de grandeza diferentes.        */
-function FluxoCaixaChart({dados}) {
-  const [hover,setHover] = useState(null); // índice do dia em foco
-  if (!dados || dados.length===0) return null;
-
-  const W = 900, HBar = 150, HLine = 110, PAD_L = 52, PAD_R = 14, PAD_TOP = 10, GAP_PANELS = 28;
-  const plotW = W - PAD_L - PAD_R;
-  const n = dados.length;
-  const slot = plotW / n;
-  const barW = Math.max(3, Math.min(24, slot*0.55));
-
-  const maiorFluxo = Math.max(1, ...dados.map(d=>Math.max(d.entradas,d.saidas)));
-  const baselineY = PAD_TOP + HBar*0.55; // mais espaço para entradas (cima) do que saídas (baixo)
-  const escalaBar = (HBar*0.42) / maiorFluxo;
-
-  const minSaldo = Math.min(0, ...dados.map(d=>d.saldoAcumulado));
-  const maxSaldo = Math.max(1, ...dados.map(d=>d.saldoAcumulado));
-  const rangeSaldo = Math.max(1, maxSaldo-minSaldo);
-  const lineTop = PAD_TOP + HBar + GAP_PANELS;
-  const escalaLinha = (v) => lineTop + HLine - ((v-minSaldo)/rangeSaldo)*HLine;
-
-  const x = (i) => PAD_L + slot*i + slot/2;
-  const pontosLinha = dados.map((d,i)=>`${x(i)},${escalaLinha(d.saldoAcumulado)}`).join(" ");
-
-  /* Rotula no máximo ~9 datas no eixo X para não amontoar */
-  const passo = Math.max(1, Math.ceil(n/9));
-
-  const totalH = lineTop + HLine + 26;
-
-  return (
-    <div style={{position:"relative"}}>
-      <div style={{display:"flex",gap:16,marginBottom:10,fontSize:11}}>
-        <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:10,height:10,borderRadius:2,background:C.success,display:"inline-block"}}/><span style={{color:C.muted}}>Entradas</span></span>
-        <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:10,height:10,borderRadius:2,background:C.danger,display:"inline-block"}}/><span style={{color:C.muted}}>Saídas</span></span>
-        <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:14,height:2,background:C.accent,display:"inline-block"}}/><span style={{color:C.muted}}>Saldo acumulado</span></span>
-      </div>
-      <svg viewBox={`0 0 ${W} ${totalH}`} style={{width:"100%",height:"auto",display:"block"}} role="img" aria-label="Gráfico de fluxo de caixa: entradas, saídas e saldo acumulado por dia">
-        {/* linha de base do painel de barras */}
-        <line x1={PAD_L} y1={baselineY} x2={W-PAD_R} y2={baselineY} stroke={C.border} strokeWidth={1}/>
-        <text x={PAD_L-6} y={baselineY+3} textAnchor="end" fontSize="9" fill={C.muted}>R$ 0</text>
-
-        {dados.map((d,i)=>{
-          const cx = x(i);
-          const hEntrada = d.entradas*escalaBar;
-          const hSaida = d.saidas*escalaBar;
-          const ativo = hover===i;
-          return (
-            <g key={d.data}>
-              {/* área de hover cobre a coluna inteira (barras + linha) */}
-              <rect x={PAD_L+slot*i} y={PAD_TOP} width={slot} height={HBar} fill="transparent"
-                onMouseEnter={()=>setHover(i)} onMouseLeave={()=>setHover(h=>h===i?null:h)}/>
-              {d.entradas>0 && <rect x={cx-barW/2} y={baselineY-hEntrada} width={barW} height={hEntrada} rx={4} fill={C.success} opacity={ativo?1:0.85}/>}
-              {d.saidas>0 && <rect x={cx-barW/2} y={baselineY} width={barW} height={hSaida} rx={4} fill={C.danger} opacity={ativo?1:0.85}/>}
-              {i%passo===0 && <text x={cx} y={PAD_TOP+HBar+13} textAnchor="middle" fontSize="9" fill={C.muted}>{fmtDate(d.data).slice(0,5)}</text>}
-              {ativo && <line x1={cx} y1={PAD_TOP} x2={cx} y2={lineTop+HLine} stroke={C.accent} strokeWidth={1} strokeDasharray="2,2" opacity={0.4}/>}
-            </g>
-          );
-        })}
-
-        {/* painel do saldo acumulado */}
-        <text x={PAD_L-6} y={escalaLinha(maxSaldo)+3} textAnchor="end" fontSize="9" fill={C.muted}>{fmt(maxSaldo)}</text>
-        <text x={PAD_L-6} y={escalaLinha(minSaldo)+3} textAnchor="end" fontSize="9" fill={C.muted}>{fmt(minSaldo)}</text>
-        <line x1={PAD_L} y1={escalaLinha(0)} x2={W-PAD_R} y2={escalaLinha(0)} stroke={C.border} strokeWidth={1} strokeDasharray="2,2"/>
-        <polyline points={pontosLinha} fill="none" stroke={C.accent} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"/>
-        {dados.map((d,i)=>(hover===i)&&
-          <circle key={d.data} cx={x(i)} cy={escalaLinha(d.saldoAcumulado)} r={4} fill={C.accent} stroke={C.card} strokeWidth={2}/>
-        )}
-      </svg>
-
-      {hover!=null && dados[hover] && (()=>{ const d=dados[hover]; const leftPct=(x(hover)/W)*100;
-        return (
-          <div style={{position:"absolute",top:4,left:`${leftPct}%`,transform:leftPct>70?"translateX(-100%)":leftPct<10?"none":"translateX(-50%)",background:C.text,color:"#FFFFFF",borderRadius:8,padding:"8px 11px",fontSize:11,pointerEvents:"none",boxShadow:"0 4px 14px #0003",whiteSpace:"nowrap",zIndex:5}}>
-            <div style={{fontWeight:700,marginBottom:4}}>{fmtDate(d.data)}</div>
-            <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:7,height:7,borderRadius:2,background:C.success,display:"inline-block"}}/>Entradas: <strong>{fmt(d.entradas)}</strong></div>
-            <div style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:7,height:7,borderRadius:2,background:C.danger,display:"inline-block"}}/>Saídas: <strong>{fmt(d.saidas)}</strong></div>
-            <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingTop:4,borderTop:"1px solid #FFFFFF30"}}><span style={{width:9,height:2,background:C.accent,display:"inline-block"}}/>Saldo acumulado: <strong>{fmt(d.saldoAcumulado)}</strong></div>
-          </div>
-        );
-      })()}
-    </div>
-  );
-}
-
 /* ─── FINANCEIRO ─────────────────────────────────────────────── */
 function Financeiro({data,insert,update,user}) {
   const [aba,setAba]=useState("receber");
@@ -3154,33 +2384,12 @@ function Financeiro({data,insert,update,user}) {
   const [baixaModal,setBaixaModal]=useState(null);
   const [baixaConta,setBaixaConta]=useState("");
   const [filtR,setFiltR]=useState({paciente:"",de:"",ate:"",status:""});
-  const [filtP,setFiltP]=useState({fornecedor:"",de:"",ate:"",status:"",recorrencia:""});
+  const [filtP,setFiltP]=useState({fornecedor:"",de:"",ate:"",status:""});
   const [filtM,setFiltM]=useState({conta:"",de:"",ate:""});
   const [filtFluxo,setFiltFluxo]=useState({de:"",ate:""});
-  const [dreTipoPeriodo,setDreTipoPeriodo]=useState("mensal"); // 'mensal' | 'anual'
-  const [dreRef,setDreRef]=useState(()=>new Date());
-  const filtDRE = useMemo(()=>{
-    if(dreTipoPeriodo==="anual"){
-      const ano=dreRef.getFullYear();
-      return {de:`${ano}-01-01`, ate:`${ano}-12-31`};
-    }
-    const de=new Date(dreRef.getFullYear(),dreRef.getMonth(),1);
-    const ate=new Date(dreRef.getFullYear(),dreRef.getMonth()+1,0);
-    return {de:de.toISOString().split("T")[0], ate:ate.toISOString().split("T")[0]};
-  },[dreTipoPeriodo,dreRef]);
-  const dreLabelPeriodo = dreTipoPeriodo==="anual" ? String(dreRef.getFullYear()) : dreRef.toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
-  const navegarPeriodoDRE = (delta) => setDreRef(d=>{
-    const nd=new Date(d);
-    if(dreTipoPeriodo==="anual") nd.setFullYear(nd.getFullYear()+delta); else nd.setMonth(nd.getMonth()+delta);
-    return nd;
-  });
-  const [form,setForm]=useState({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false});
+  const [form,setForm]=useState({descricao:"",valor:0,vencimento:today(),categoria:"",fornecedor:"",paciente:"",conta_id:""});
   const [caixaModal,setCaixaModal]=useState(null); // {tipo:'abrir'|'fechar', conta}
   const [caixaValor,setCaixaValor]=useState("");
-
-  const categoriasReceita = (data.categorias_financeiras||[]).filter(c=>c.tipo==="receita"&&c.ativo!==false);
-  const categoriasDespesa = (data.categorias_financeiras||[]).filter(c=>c.tipo==="despesa"&&c.ativo!==false);
-  const nomeCategoria = (id) => (data.categorias_financeiras||[]).find(c=>c.id===Number(id))?.nome || "Sem categoria";
 
   const cr_lista=useMemo(()=>{
     let l=[...data.contas_receber];
@@ -3197,8 +2406,6 @@ function Financeiro({data,insert,update,user}) {
     if(filtP.de) l=l.filter(c=>c.vencimento>=filtP.de);
     if(filtP.ate) l=l.filter(c=>c.vencimento<=filtP.ate);
     if(filtP.status) l=l.filter(c=>c.status===filtP.status);
-    if(filtP.recorrencia==="recorrente") l=l.filter(c=>c.recorrente);
-    if(filtP.recorrencia==="pontual") l=l.filter(c=>!c.recorrente);
     return l.sort((a,b)=>a.vencimento?.localeCompare(b.vencimento)||0);
   },[data.contas_pagar,filtP]);
 
@@ -3228,10 +2435,6 @@ function Financeiro({data,insert,update,user}) {
     await insert("movimentacoes",{conta_id:parseInt(baixaConta),tipo:tipo==="receber"?"entrada":"saida",origem:tipo==="receber"?"contas_receber":"contas_pagar",origem_id:item.id,descricao:tipo==="receber"?`Recebimento — ${item.paciente||item.descricao}`:`Pagamento — ${item.descricao}`,valor:Number(item.valor)||0,data:today()});
     setBaixaModal(null);setBaixaConta("");
   };
-  const abrirModalLancamento = (tipo) => {
-    setForm({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false});
-    setModal(tipo);
-  };
 
   const cancelar=(id,tipo)=>{
     const tabela=tipo==="receber"?"contas_receber":"contas_pagar";
@@ -3240,8 +2443,7 @@ function Financeiro({data,insert,update,user}) {
 
   const statusColor={aberto:C.warn,quitado:C.success,cancelado:C.danger,vencido:C.danger};
 
-  // ── FLUXO DE CAIXA: agrupa movimentações por dia, com saldo acumulado ──
-  const saldoInicialTotal = data.contas_bancarias.reduce((s,c)=>s+(Number(c.saldo_inicial)||0),0);
+  // ── FLUXO DE CAIXA: agrupa movimentações por dia ──
   const fluxoDados = useMemo(()=>{
     let ms=[...data.movimentacoes];
     if(filtFluxo.de) ms=ms.filter(m=>m.data>=filtFluxo.de);
@@ -3252,49 +2454,16 @@ function Financeiro({data,insert,update,user}) {
       if(m.tipo==="entrada") porDia[m.data].entradas+=Number(m.valor)||0;
       else porDia[m.data].saidas+=Number(m.valor)||0;
     });
-    /* Saldo acumulado parte do saldo inicial das contas + tudo que aconteceu ANTES do período filtrado */
-    const antesDoPeriodo = filtFluxo.de ? data.movimentacoes.filter(m=>m.data<filtFluxo.de) : [];
-    let acumulado = saldoInicialTotal + antesDoPeriodo.reduce((s,m)=>s+(m.tipo==="entrada"?Number(m.valor):-Number(m.valor)),0);
-    const dias = Object.values(porDia).sort((a,b)=>a.data.localeCompare(b.data));
-    return dias.map(d=>{ acumulado += d.entradas - d.saidas; return {...d, saldoAcumulado:acumulado}; });
-  },[data.movimentacoes,filtFluxo,saldoInicialTotal]);
+    return Object.values(porDia).sort((a,b)=>b.data.localeCompare(a.data));
+  },[data.movimentacoes,filtFluxo]);
   const totalEntradasFluxo = fluxoDados.reduce((s,d)=>s+d.entradas,0);
   const totalSaidasFluxo = fluxoDados.reduce((s,d)=>s+d.saidas,0);
+  const maiorValorFluxo = Math.max(1,...fluxoDados.map(d=>Math.max(d.entradas,d.saidas)));
 
-  // ── DRE — formato padrão de mercado (Receita Bruta → Deduções → Receita Líquida →
-  //    Custos → Lucro Bruto → Despesas Operacionais → Resultado Operacional →
-  //    Resultado Financeiro → LAIR → Impostos sobre o Lucro → Lucro Líquido) ──
-  const dentroPeriodoDRE = (dataCompetencia, vencimentoFallback) => {
-    const d = dataCompetencia || vencimentoFallback;
-    if(!d) return false;
-    if(filtDRE.de && d<filtDRE.de) return false;
-    if(filtDRE.ate && d>filtDRE.ate) return false;
-    return true;
-  };
-  const mapCategoriaParaContaDRE = (categoriaId) => (data.categorias_financeiras||[]).find(c=>c.id===categoriaId)?.conta_dre_id || null;
-  const lancamentosDoGrupo = (grupoId) => grupoDRE(grupoId)?.tipo==="receita" ? data.contas_receber : data.contas_pagar;
-  const linhasDoGrupo = (grupoId) => {
-    const contas = (data.contas_dre||[]).filter(cd=>cd.grupo===grupoId && cd.ativo!==false).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
-    const noPeriodo = lancamentosDoGrupo(grupoId).filter(c=>dentroPeriodoDRE(c.data_competencia,c.vencimento));
-    return contas.map(conta=>({
-      conta, valor: noPeriodo.filter(c=>mapCategoriaParaContaDRE(c.categoria_id)===conta.id).reduce((s,c)=>s+(Number(c.valor)||0),0),
-    })).filter(l=>l.valor>0);
-  };
-  const somaLinhas = (linhas) => linhas.reduce((s,l)=>s+l.valor,0);
-
-  // 1. Receita Operacional Bruta (+ receitas sem categoria vinculada a nenhuma conta do DRE)
-  const dreReceitaBrutaLinhas = linhasDoGrupo("receita_bruta");
-  const receitaNaoClassificada = data.contas_receber.filter(c=>dentroPeriodoDRE(c.data_competencia,c.vencimento)&&!mapCategoriaParaContaDRE(c.categoria_id)).reduce((s,c)=>s+(Number(c.valor)||0),0);
-  if(receitaNaoClassificada>0) dreReceitaBrutaLinhas.push({conta:{id:"nc-r",nome:"Outras receitas (não classificadas)"}, valor:receitaNaoClassificada});
-  const dreReceitaBruta = somaLinhas(dreReceitaBrutaLinhas);
-
-  // 2. (-) Deduções da Receita → 3. Receita Operacional Líquida
-  const dreDeducoesLinhas = linhasDoGrupo("deducoes");
-  const dreDeducoes = somaLinhas(dreDeducoesLinhas);
-  const dreReceitaLiquida = dreReceitaBruta - dreDeducoes;
-
-  // 4. (-) Custo dos Serviços Prestados (categorizado manualmente + consumo automático de insumos) → 5. Lucro Bruto
-  const dreCustosLinhas = linhasDoGrupo("custos");
+  // ── DRE SIMPLIFICADO ──
+  const dreReceitaAtendimentos = data.atendimentos.reduce((s,a)=>s+(Number(a.valor_final||a.valor)||0),0);
+  const dreReceitaAluguel = (data.aluguel_pagamentos||[]).filter(p=>p.status==="quitado").reduce((s,p)=>s+(Number(p.valor)||0),0);
+  const dreReceita = dreReceitaAtendimentos + dreReceitaAluguel;
   const dreCustoProdutos = data.atendimentos.reduce((s,at)=>{
     const itens=(data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
     if(itens.length>0){
@@ -3307,31 +2476,10 @@ function Financeiro({data,insert,update,user}) {
     const proc=data.procedimentos.find(p=>p.id===at.procedimento_id||p.nome===at.servico);
     return s+(Number(proc?.custo_total)||0);
   },0);
-  if(dreCustoProdutos>0) dreCustosLinhas.push({conta:{id:"auto-custo",nome:"Consumo de insumos em atendimentos"}, valor:dreCustoProdutos});
-  const dreCustosTotal = somaLinhas(dreCustosLinhas);
-  const dreLucroBruto = dreReceitaLiquida - dreCustosTotal;
-
-  // 6. (-) Despesas Operacionais (comissões automáticas + categorizadas + não classificadas) → 7. Resultado Operacional
-  const dreDespOperLinhas = linhasDoGrupo("despesas_operacionais");
   const dreComissoes = (data.comissoes||[]).reduce((s,c)=>s+(Number(c.valor_comissao)||0),0);
-  if(dreComissoes>0) dreDespOperLinhas.push({conta:{id:"auto-comissao",nome:"Comissões de profissionais"}, valor:dreComissoes});
-  const despesaNaoClassificada = data.contas_pagar.filter(c=>dentroPeriodoDRE(c.data_competencia,c.vencimento)&&!mapCategoriaParaContaDRE(c.categoria_id)).reduce((s,c)=>s+(Number(c.valor)||0),0);
-  if(despesaNaoClassificada>0) dreDespOperLinhas.push({conta:{id:"nc-d",nome:"Outras despesas (não classificadas)"}, valor:despesaNaoClassificada});
-  const dreDespOperTotal = somaLinhas(dreDespOperLinhas);
-  const dreResultadoOperacional = dreLucroBruto - dreDespOperTotal;
-
-  // 8. (+) Receitas Financeiras / (-) Despesas Financeiras → 9. Resultado Antes do IR/CSLL (LAIR)
-  const dreReceitasFinLinhas = linhasDoGrupo("receitas_financeiras");
-  const dreReceitasFin = somaLinhas(dreReceitasFinLinhas);
-  const dreDespesasFinLinhas = linhasDoGrupo("despesas_financeiras");
-  const dreDespesasFin = somaLinhas(dreDespesasFinLinhas);
-  const dreLAIR = dreResultadoOperacional + dreReceitasFin - dreDespesasFin;
-
-  // 10. (-) Impostos sobre o Lucro → 11. Lucro Líquido do Exercício
-  const dreImpostosLucroLinhas = linhasDoGrupo("impostos_lucro");
-  const dreImpostosLucro = somaLinhas(dreImpostosLucroLinhas);
-  const dreResultado = dreLAIR - dreImpostosLucro;
-  const dreReceita = dreReceitaBruta; // usado no rótulo da aba e na margem
+  const dreDespFixas = data.despesas_fixas.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const dreDespVar = data.despesas_variaveis.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const dreResultado = dreReceita - dreCustoProdutos - dreComissoes - dreDespFixas - dreDespVar;
 
   // ── CAIXA DO DIA ──
   const caixasHoje = (data.caixa_diario||[]).filter(c=>c.data===today());
@@ -3373,6 +2521,8 @@ function Financeiro({data,insert,update,user}) {
     {id:"fluxo",label:"Fluxo de Caixa",valor:fmt(totalEntradasFluxo-totalSaidasFluxo),cor:C.info},
     {id:"dre",label:"DRE Simplificado",valor:fmt(dreResultado),cor:dreResultado>=0?C.success:C.danger},
     {id:"extrato",label:"Extrato por Conta",valor:fmt(saldos.reduce((s,c)=>s+c.saldo,0)),cor:C.info},
+    {id:"fixas",label:"Despesas Fixas",valor:fmt(dreDespFixas),cor:C.warn},
+    {id:"variaveis",label:"Despesas Variáveis",valor:fmt(dreDespVar),cor:C.warn},
   ];
 
   return(
@@ -3393,15 +2543,14 @@ function Financeiro({data,insert,update,user}) {
               <button key={id} onClick={()=>setSubAbaReceber(id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${subAbaReceber===id?cor:C.border}`,background:subAbaReceber===id?cor+"14":"transparent",color:subAbaReceber===id?cor:C.muted,fontSize:11,fontWeight:subAbaReceber===id?700:400,cursor:"pointer"}}>{label} ({qtd})</button>
             ))}
           </div>
-          <Btn onClick={()=>abrirModalLancamento("rec")}><I.Plus s={12}/> Lançar</Btn>
+          <Btn onClick={()=>setModal("rec")}><I.Plus s={12}/> Lançar</Btn>
         </div>
         <FilterBar filters={[{key:"paciente",type:"text",label:"Buscar paciente..."},{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"}]} values={filtR} onChange={(k,v)=>setFiltR(p=>({...p,[k]:v}))}/>
-        <ST cols={subAbaReceber==="aberto"?["Paciente","Descrição","Categoria","Vencimento","Valor","Forma Pgto","Status","Ações"]:["Paciente","Descrição","Recebido em","Valor","Forma Pgto","Conta"]}
+        <ST cols={subAbaReceber==="aberto"?["Paciente","Descrição","Vencimento","Valor","Forma Pgto","Status","Ações"]:["Paciente","Descrição","Recebido em","Valor","Forma Pgto","Conta"]}
           rows={(subAbaReceber==="aberto"?cr_abertas:cr_recebidas).map(c=>{
             if(subAbaReceber==="aberto") return [
               <span style={{fontWeight:600}}>{c.paciente||"—"}</span>,
               <span style={{fontSize:11}}>{c.descricao}</span>,
-              <span style={{color:C.muted,fontSize:11}}>{c.categoria_id?nomeCategoria(c.categoria_id):"—"}</span>,
               <span style={{fontSize:11,color:c.vencimento<today()?C.danger:C.text}}>{fmtDate(c.vencimento)}</span>,
               <span style={{color:C.success,fontWeight:700}}>{fmt(c.valor)}</span>,
               <span style={{color:C.muted,fontSize:11}}>{c.forma_pagamento||"—"}</span>,
@@ -3433,15 +2582,15 @@ function Financeiro({data,insert,update,user}) {
               <button key={id} onClick={()=>setSubAbaPagar(id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${subAbaPagar===id?cor:C.border}`,background:subAbaPagar===id?cor+"14":"transparent",color:subAbaPagar===id?cor:C.muted,fontSize:11,fontWeight:subAbaPagar===id?700:400,cursor:"pointer"}}>{label} ({qtd})</button>
             ))}
           </div>
-          <Btn onClick={()=>abrirModalLancamento("pag")}><I.Plus s={12}/> Lançar</Btn>
+          <Btn onClick={()=>setModal("pag")}><I.Plus s={12}/> Lançar</Btn>
         </div>
-        <FilterBar filters={[{key:"fornecedor",type:"text",label:"Buscar fornecedor/descrição..."},{key:"recorrencia",type:"select",label:"Tipo",options:[{value:"",label:"Todas"},{value:"recorrente",label:"Recorrentes"},{value:"pontual",label:"Pontuais"}]},{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"}]} values={filtP} onChange={(k,v)=>setFiltP(p=>({...p,[k]:v}))}/>
+        <FilterBar filters={[{key:"fornecedor",type:"text",label:"Buscar fornecedor/descrição..."},{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"}]} values={filtP} onChange={(k,v)=>setFiltP(p=>({...p,[k]:v}))}/>
         <ST cols={subAbaPagar==="aberto"?["Fornecedor","Descrição","Categoria","Vencimento","Valor","Status","Ações"]:["Fornecedor","Descrição","Pago em","Valor","Conta"]}
           rows={(subAbaPagar==="aberto"?cp_abertas:cp_pagas).map(c=>{
             if(subAbaPagar==="aberto") return [
               <span style={{fontWeight:600}}>{c.fornecedor||"—"}</span>,
-              <span style={{fontSize:11}}>{c.descricao}{c.recorrente&&<span style={{marginLeft:5,color:C.accent,fontSize:9,fontWeight:700}}>· RECORRENTE</span>}</span>,
-              <span style={{color:C.muted,fontSize:11}}>{c.categoria_id?nomeCategoria(c.categoria_id):(c.categoria||"—")}</span>,
+              <span style={{fontSize:11}}>{c.descricao}</span>,
+              <span style={{color:C.muted,fontSize:11}}>{c.categoria||"—"}</span>,
               <span style={{fontSize:11,color:c.vencimento<today()?C.danger:C.text}}>{fmtDate(c.vencimento)}</span>,
               <span style={{color:C.danger,fontWeight:700}}>{fmt(c.valor)}</span>,
               <Badge text="Aberto" color={C.warn}/>,
@@ -3520,62 +2669,48 @@ function Financeiro({data,insert,update,user}) {
         </div>
         <FilterBar filters={[{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"}]} values={filtFluxo} onChange={(k,v)=>setFiltFluxo(p=>({...p,[k]:v}))}/>
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:16}}>
-          {fluxoDados.length===0
-            ? <p style={{color:C.muted,fontSize:13,textAlign:"center",padding:20}}>Nenhuma movimentação no período.</p>
-            : <FluxoCaixaChart dados={fluxoDados}/>
-          }
+          {fluxoDados.length===0&&<p style={{color:C.muted,fontSize:13,textAlign:"center",padding:20}}>Nenhuma movimentação no período.</p>}
+          {fluxoDados.map(d=>(
+            <div key={d.data} style={{marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                <span style={{color:C.text,fontSize:12,fontWeight:600}}>{fmtDate(d.data)}</span>
+                <span style={{color:d.entradas-d.saidas>=0?C.success:C.danger,fontWeight:700,fontSize:12}}>{fmt(d.entradas-d.saidas)}</span>
+              </div>
+              <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:3}}>
+                <span style={{color:C.success,fontSize:10,minWidth:70}}>{fmt(d.entradas)}</span>
+                <div style={{flex:1,background:C.surface,borderRadius:20,height:7}}><div style={{width:`${d.entradas/maiorValorFluxo*100}%`,height:"100%",background:C.success,borderRadius:20}}/></div>
+              </div>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <span style={{color:C.danger,fontSize:10,minWidth:70}}>{fmt(d.saidas)}</span>
+                <div style={{flex:1,background:C.surface,borderRadius:20,height:7}}><div style={{width:`${d.saidas/maiorValorFluxo*100}%`,height:"100%",background:C.danger,borderRadius:20}}/></div>
+              </div>
+            </div>
+          ))}
         </div>
       </>}
 
-      {/* DRE — formato padrão de mercado, regime de competência */}
+      {/* DRE SIMPLIFICADO */}
       {aba==="dre"&&<>
-        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16,flexWrap:"wrap"}}>
-          <div style={{display:"flex",gap:6}}>
-            {[["mensal","Mensal"],["anual","Anual"]].map(([id,label])=>(
-              <button key={id} onClick={()=>setDreTipoPeriodo(id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${dreTipoPeriodo===id?C.accent:C.border}`,background:dreTipoPeriodo===id?C.accentSoft:"transparent",color:dreTipoPeriodo===id?C.accent:C.muted,fontSize:11,fontWeight:dreTipoPeriodo===id?700:400,cursor:"pointer"}}>{label}</button>
-            ))}
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <button onClick={()=>navegarPeriodoDRE(-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:30,height:30,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={13} style={{transform:"rotate(180deg)"}}/></button>
-            <span style={{color:C.text,fontWeight:700,fontSize:13,minWidth:110,textAlign:"center",textTransform:"capitalize"}}>{dreLabelPeriodo}</span>
-            <button onClick={()=>navegarPeriodoDRE(1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:30,height:30,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Arrow c={C.muted} s={13}/></button>
-          </div>
-          <button onClick={()=>setDreRef(new Date())} style={{background:"none",border:"none",color:C.accent,fontSize:11,fontWeight:600,cursor:"pointer"}}>Ir para hoje</button>
-        </div>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:20,maxWidth:640}}>
-          <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:4}}>Demonstrativo de Resultado do Exercício (DRE)</h3>
-          <p style={{color:C.muted,fontSize:11,marginBottom:16}}>Regime de competência. As contas de cada grupo vêm de "Cadastros → Categorias → Contas do DRE".</p>
-
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:20,maxWidth:560}}>
+          <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:16}}>Demonstrativo de Resultado — Visão Geral</h3>
           {[
-            {titulo:"Receita Operacional Bruta", linhas:dreReceitaBrutaLinhas, subtotalLabel:null, cor:C.success},
-            {titulo:"(–) Deduções da Receita", linhas:dreDeducoesLinhas, subtotalLabel:"(=) Receita Operacional Líquida", subtotal:dreReceitaLiquida, cor:C.danger},
-            {titulo:"(–) Custo dos Serviços Prestados", linhas:dreCustosLinhas, subtotalLabel:"(=) Lucro Bruto", subtotal:dreLucroBruto, cor:C.danger},
-            {titulo:"(–) Despesas Operacionais", linhas:dreDespOperLinhas, subtotalLabel:"(=) Resultado Operacional (EBIT)", subtotal:dreResultadoOperacional, cor:C.danger},
-            {titulo:"(+) Receitas Financeiras", linhas:dreReceitasFinLinhas, subtotalLabel:null, cor:C.success},
-            {titulo:"(–) Despesas Financeiras", linhas:dreDespesasFinLinhas, subtotalLabel:"(=) Resultado Antes do IR/CSLL", subtotal:dreLAIR, cor:C.danger},
-            {titulo:"(–) Impostos sobre o Lucro (IR/CSLL)", linhas:dreImpostosLucroLinhas, subtotalLabel:null, cor:C.danger},
-          ].map((secao,i)=>(
-            <div key={i}>
-              <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",margin:i===0?"0 0 4px":"16px 0 4px"}}>{secao.titulo}</div>
-              {secao.linhas.length===0 && <div style={{color:C.muted,fontSize:12,padding:"4px 0 4px 12px"}}>Nada lançado no período.</div>}
-              {secao.linhas.map(l=>(
-                <div key={l.conta.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`,paddingLeft:12}}>
-                  <span style={{color:C.text,fontSize:13}}>{l.conta.nome}</span>
-                  <span style={{color:secao.cor,fontWeight:600,fontSize:13}}>{fmt(l.valor)}</span>
-                </div>
-              ))}
-              {secao.subtotalLabel&&<div style={{display:"flex",justifyContent:"space-between",padding:"7px 0",marginTop:2,fontWeight:700,borderTop:`1px solid ${C.border}`}}>
-                <span style={{color:C.text,fontSize:13}}>{secao.subtotalLabel}</span>
-                <span style={{color:secao.subtotal>=0?C.success:C.danger,fontSize:13}}>{fmt(secao.subtotal)}</span>
-              </div>}
+            ["Receita — Atendimentos",dreReceitaAtendimentos,C.success,false],
+            ["Receita — Aluguel de Salas",dreReceitaAluguel,C.success,false],
+            ["(–) Custo de Produtos e Insumos",-dreCustoProdutos,C.danger,true],
+            ["(–) Comissões de Profissionais",-dreComissoes,C.danger,true],
+            ["(–) Despesas Fixas",-dreDespFixas,C.danger,true],
+            ["(–) Despesas Variáveis",-dreDespVar,C.danger,true],
+          ].map(([label,val,cor,indent])=>(
+            <div key={label} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:`1px solid ${C.border}`,paddingLeft:indent?12:0}}>
+              <span style={{color:C.text,fontSize:13}}>{label}</span>
+              <span style={{color:cor,fontWeight:600,fontSize:13}}>{val<0?"-":""}{fmt(Math.abs(val))}</span>
             </div>
           ))}
-
-          <div style={{display:"flex",justifyContent:"space-between",padding:"14px 0 4px",marginTop:10,borderTop:`2px solid ${C.text}`}}>
-            <span style={{color:C.text,fontSize:15,fontWeight:700}}>Lucro Líquido do Exercício</span>
+          <div style={{display:"flex",justifyContent:"space-between",padding:"14px 0 4px",marginTop:6}}>
+            <span style={{color:C.text,fontSize:15,fontWeight:700}}>Resultado Líquido</span>
             <span style={{color:dreResultado>=0?C.success:C.danger,fontWeight:700,fontSize:18}}>{fmt(dreResultado)}</span>
           </div>
-          <div style={{color:C.muted,fontSize:11,marginTop:4}}>Margem bruta: {dreReceitaLiquida>0?Math.round(dreLucroBruto/dreReceitaLiquida*100):0}% · Margem líquida: {dreReceitaBruta>0?Math.round(dreResultado/dreReceitaBruta*100):0}%</div>
+          <div style={{color:C.muted,fontSize:11,marginTop:4}}>Margem líquida: {dreReceita>0?Math.round(dreResultado/dreReceita*100):0}%</div>
         </div>
       </>}
 
@@ -3596,33 +2731,42 @@ function Financeiro({data,insert,update,user}) {
         />
       </>}
 
+      {/* FIXAS */}
+      {aba==="fixas"&&<>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}><Btn onClick={()=>setModal("fixa")}><I.Plus s={12}/> Adicionar</Btn></div>
+        <ST cols={["Despesa","Categoria","Valor Mensal","Ações"]}
+          rows={data.despesas_fixas.map(d=>[
+            <span style={{fontWeight:600}}>{d.nome}</span>,<span style={{color:C.muted,fontSize:11}}>{d.categoria||"—"}</span>,
+            <span style={{color:C.danger,fontWeight:700}}>{fmt(d.valor)}</span>,
+            <Btn v="d" onClick={()=>update("despesas_fixas",d.id,{ativo:false})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+          ])}
+        />
+      </>}
+
+      {/* VARIÁVEIS */}
+      {aba==="variaveis"&&<>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}><Btn onClick={()=>setModal("var")}><I.Plus s={12}/> Lançar</Btn></div>
+        <ST cols={["Despesa","Categoria","Data","Valor","Ações"]}
+          rows={data.despesas_variaveis.map(d=>[
+            <span style={{fontWeight:600}}>{d.nome}</span>,<span style={{color:C.muted,fontSize:11}}>{d.categoria||"—"}</span>,
+            fmtDate(d.data),<span style={{color:C.warn,fontWeight:700}}>{fmt(d.valor)}</span>,
+            <Btn v="d" onClick={()=>update("despesas_variaveis",d.id,{ativo:false})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+          ])}
+        />
+      </>}
+
       {/* MODAL LANÇAMENTO */}
-      {modal&&<Mod title={modal==="rec"?"Nova Conta a Receber":"Nova Conta a Pagar"} onClose={()=>setModal(null)}>
+      {modal&&<Mod title={modal==="rec"?"Nova Conta a Receber":modal==="pag"?"Nova Conta a Pagar":modal==="fixa"?"Nova Despesa Fixa":"Nova Despesa Variável"} onClose={()=>setModal(null)}>
         <Inp label="Descrição" value={form.descricao} onChange={e=>setForm(f=>({...f,descricao:e.target.value}))}/>
         <Inp label="Valor (R$)" type="number" value={form.valor} onChange={e=>setForm(f=>({...f,valor:e.target.value}))}/>
         {modal==="pag"&&<Inp label="Fornecedor" value={form.fornecedor} onChange={e=>setForm(f=>({...f,fornecedor:e.target.value}))}/>}
         {modal==="rec"&&<Inp label="Paciente" value={form.paciente} onChange={e=>setForm(f=>({...f,paciente:e.target.value}))}/>}
-        <Sel label="Categoria" value={form.categoria_id} onChange={e=>setForm(f=>({...f,categoria_id:e.target.value}))}
-          options={[{value:"",label:"Selecione..."}, ...(modal==="rec"?categoriasReceita:categoriasDespesa).map(c=>({value:c.id,label:c.nome}))]}/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <Inp label="Vencimento" type="date" value={form.vencimento} onChange={e=>setForm(f=>({...f,vencimento:e.target.value}))}/>
-          <Inp label="Data de Competência" type="date" value={form.data_competencia} onChange={e=>setForm(f=>({...f,data_competencia:e.target.value}))}/>
-        </div>
-        <Inp label="Data de Lançamento" type="date" value={form.data_lancamento} onChange={e=>setForm(f=>({...f,data_lancamento:e.target.value}))}/>
-        <p style={{color:C.muted,fontSize:10,marginTop:-6,marginBottom:10}}>Por padrão é hoje — mude para uma data passada se estiver registrando algo retroativo.</p>
-        {modal==="pag"&&<label style={{display:"flex",alignItems:"center",gap:8,marginTop:2,cursor:"pointer"}}>
-          <input type="checkbox" checked={!!form.recorrente} onChange={e=>setForm(f=>({...f,recorrente:e.target.checked}))}/>
-          <span style={{color:C.text,fontSize:12}}>Despesa recorrente (fixa, se repete todo mês)</span>
-        </label>}
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
+        {(modal==="fixa"||modal==="pag"||modal==="var")&&<Inp label="Categoria" value={form.categoria} onChange={e=>setForm(f=>({...f,categoria:e.target.value}))} placeholder="Imóvel, Insumos, Marketing..."/>}
+        {(modal==="rec"||modal==="pag")&&<Inp label="Vencimento" type="date" value={form.vencimento} onChange={e=>setForm(f=>({...f,vencimento:e.target.value}))}/>}
+        {modal==="var"&&<Inp label="Data" type="date" value={form.vencimento} onChange={e=>setForm(f=>({...f,vencimento:e.target.value}))}/>}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <Btn v="g" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={async()=>{
-            const v=Number(form.valor);
-            const base={descricao:form.descricao,valor:v,vencimento:form.vencimento,data_lancamento:form.data_lancamento||today(),data_competencia:form.data_competencia||form.vencimento,categoria_id:form.categoria_id?Number(form.categoria_id):null,status:"aberto"};
-            if(modal==="rec")await insert("contas_receber",{...base,paciente:form.paciente});
-            if(modal==="pag")await insert("contas_pagar",{...base,fornecedor:form.fornecedor,recorrente:!!form.recorrente});
-            setModal(null);
-          }}><I.Check s={12}/> Salvar</Btn>
+          <Btn onClick={async()=>{const v=Number(form.valor);if(modal==="fixa")await insert("despesas_fixas",{nome:form.descricao,valor:v,categoria:form.categoria});if(modal==="var")await insert("despesas_variaveis",{nome:form.descricao,valor:v,categoria:form.categoria,data:form.vencimento||today()});if(modal==="rec")await insert("contas_receber",{descricao:form.descricao,paciente:form.paciente,valor:v,vencimento:form.vencimento,status:"aberto"});if(modal==="pag")await insert("contas_pagar",{descricao:form.descricao,fornecedor:form.fornecedor,categoria:form.categoria,valor:v,vencimento:form.vencimento,status:"aberto"});setModal(null);}}><I.Check s={12}/> Salvar</Btn>
         </div>
       </Mod>}
 
@@ -3686,8 +2830,8 @@ function Precos({data, update}) {
   const [editValues, setEditValues] = useState({});
   const ff = (k,v) => setFilt(p=>({...p,[k]:v}));
 
-  const tf = (data.contas_pagar||[]).filter(c=>c.recorrente).reduce((s,d)=>s+(Number(d.valor)||0),0);
-  const tv = (data.contas_pagar||[]).filter(c=>!c.recorrente).reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const tf = data.despesas_fixas.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const tv = data.despesas_variaveis.reduce((s,d)=>s+(Number(d.valor)||0),0);
   const nA = data.atendimentos.length || 1;
   const cpA = (tf+tv)/nA;
 
@@ -3774,7 +2918,7 @@ function Precos({data, update}) {
 
       <div className="stat-row" style={{display:"flex",gap:9,marginBottom:14,flexWrap:"wrap"}}>
         <SC label="Total Despesas" value={fmt(tf+tv)} Icon={I.Dollar} color={C.danger}/>
-        <SC label="Custo/Atend." value={fmt(cpA)} Icon={I.Tag} color={C.purple} sub="Custo fixo médio"/>
+        <SC label="Custo/Atend." value={fmt(cpA)} Icon={I.Tag} color={C.purple} sub="Overhead médio"/>
         <SC label="Procedimentos" value={data.procedimentos.filter(p=>p.ativo).length} Icon={I.Scissors} color={C.accent}/>
         <SC label="Produtos" value={data.produtos.filter(p=>p.ativo).length} Icon={I.Box} color={C.info}/>
       </div>
@@ -3795,7 +2939,7 @@ function Precos({data, update}) {
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
             <thead><tr style={{background:C.surface}}>
-              {["Nome","Tipo","Categoria","Custo Insumos","Custo Fixo","Custo Total","Markup %","Preço Venda","Margem",""].map(h=>(
+              {["Nome","Tipo","Categoria","Custo Insumos","Overhead","Custo Total","Markup %","Preço Venda","Margem",""].map(h=>(
                 <th key={h} style={{padding:"9px 12px",textAlign:"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:.8,fontWeight:600,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr></thead>
@@ -3863,9 +3007,8 @@ function Relatorios({data, insert}) {
 
   // KPIs financeiros
   const rec = atsFilt.reduce((s,a)=>s+(Number(a.valor_final||a.valor)||0),0);
-  const despRelFiltradas = (data.contas_pagar||[]).filter(c=>c.status!=="cancelado"&&(!filt.de||c.vencimento>=filt.de)&&(!filt.ate||c.vencimento<=filt.ate));
-  const tf = despRelFiltradas.filter(c=>c.recorrente).reduce((s,d)=>s+(Number(d.valor)||0),0);
-  const tv = despRelFiltradas.filter(c=>!c.recorrente).reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const tf = data.despesas_fixas.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const tv = data.despesas_variaveis.reduce((s,d)=>s+(Number(d.valor)||0),0);
   const lucro = rec-tf-tv;
   const ticket = atsFilt.length>0?rec/atsFilt.length:0;
   const txConversao = data.agendamentos.length>0?(data.atendimentos.length/data.agendamentos.length*100).toFixed(1):0;
@@ -3911,8 +3054,6 @@ function Relatorios({data, insert}) {
   const fpList=Object.entries(porFp).sort((a,b)=>b[1]-a[1]);
 
   // Export Excel
-  /* Evita injeção de fórmula (CSV/DDE) ao abrir o arquivo no Excel */
-  const csvSafe = v => { const s=String(v??""); return /^[=+\-@]/.test(s) ? `'${s}` : s; };
   const exportExcel = (tipo) => {
     let csv="";
     if(tipo==="financeiro"){
@@ -3921,11 +3062,11 @@ function Relatorios({data, insert}) {
     }
     if(tipo==="crm"){
       csv="Nome;CPF;WhatsApp;Email;Total Gasto;Visitas;Última Visita;Dias Sem Vir;Segmento\n";
-      crmPacientes.forEach(p=>{csv+=`${csvSafe(p.nome)};${csvSafe(p.cpf)};${csvSafe(p.whatsapp||p.telefone)};${csvSafe(p.email)};${fmt(p.total_real)};${p.freq};${fmtDate(p.ultima_visita_real)};${p.dias_sem_vir===999?"—":p.dias_sem_vir};${p.segmento}\n`;});
+      crmPacientes.forEach(p=>{csv+=`${p.nome};${p.cpf||""};${p.whatsapp||p.telefone||""};${p.email||""};${fmt(p.total_real)};${p.freq};${fmtDate(p.ultima_visita_real)};${p.dias_sem_vir===999?"—":p.dias_sem_vir};${p.segmento}\n`;});
     }
     if(tipo==="procedimentos"){
       csv="Procedimento;Realizados;Receita\n";
-      porProc.forEach(p=>{csv+=`${csvSafe(p.nome)};${p.realizados};${fmt(p.receita)}\n`;});
+      porProc.forEach(p=>{csv+=`${p.nome};${p.realizados};${fmt(p.receita)}\n`;});
     }
     const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
     const url=URL.createObjectURL(blob);
@@ -4193,68 +3334,8 @@ function Relatorios({data, insert}) {
 
 
 /* ─── CADASTROS AUXILIARES ───────────────────────────────────── */
-/* ─── EDITOR DE HORÁRIO DE TRABALHO (dentro do cadastro do profissional) ── */
-const DIAS_SEMANA = [
-  {v:1,l:"Segunda"},{v:2,l:"Terça"},{v:3,l:"Quarta"},{v:4,l:"Quinta"},
-  {v:5,l:"Sexta"},{v:6,l:"Sábado"},{v:0,l:"Domingo"},
-];
-function HorarioTrabalhoEditor({profissionalId, horarios, insert, update}) {
-  const [msg,setMsg] = useState("");
-  const [salvando,setSalvando] = useState(false);
-  const [dias,setDias] = useState(()=>{
-    const base = {};
-    DIAS_SEMANA.forEach(d=>{
-      const existente = horarios.find(h=>h.profissional_id===profissionalId && h.dia_semana===d.v);
-      base[d.v] = existente
-        ? {ativo:existente.ativo, hora_inicio:existente.hora_inicio, hora_fim:existente.hora_fim, id:existente.id}
-        : {ativo:false, hora_inicio:"09:00", hora_fim:"18:00", id:null};
-    });
-    return base;
-  });
-
-  const atualizarDia = (dia,campo,valor) => setDias(d=>({...d,[dia]:{...d[dia],[campo]:valor}}));
-
-  const salvarHorarios = async () => {
-    setSalvando(true); setMsg("");
-    for (const d of DIAS_SEMANA) {
-      const cfg = dias[d.v];
-      const registro = {profissional_id:profissionalId, dia_semana:d.v, hora_inicio:cfg.hora_inicio, hora_fim:cfg.hora_fim, ativo:cfg.ativo};
-      if (cfg.id) await update("horarios_profissional", cfg.id, registro);
-      else await insert("horarios_profissional", registro);
-    }
-    setSalvando(false);
-    setMsg("✓ Horários salvos!");
-  };
-
-  return (
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:13,marginBottom:14}}>
-      <div style={{color:C.text,fontSize:12,fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-        <I.Cal c={C.accent} s={13}/> Horário de Trabalho
-      </div>
-      {DIAS_SEMANA.map(d=>(
-        <div key={d.v} style={{display:"grid",gridTemplateColumns:"90px auto 1fr 1fr",gap:8,alignItems:"center",marginBottom:7}}>
-          <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
-            <input type="checkbox" checked={dias[d.v].ativo} onChange={e=>atualizarDia(d.v,"ativo",e.target.checked)} style={{width:14,height:14,accentColor:C.accent}}/>
-            <span style={{color:C.text,fontSize:12}}>{d.l}</span>
-          </label>
-          {dias[d.v].ativo ? <>
-            <span style={{color:C.muted,fontSize:10}}>das</span>
-            <input type="time" value={dias[d.v].hora_inicio} onChange={e=>atualizarDia(d.v,"hora_inicio",e.target.value)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 8px",color:C.text,fontSize:12}}/>
-            <input type="time" value={dias[d.v].hora_fim} onChange={e=>atualizarDia(d.v,"hora_fim",e.target.value)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 8px",color:C.text,fontSize:12}}/>
-          </> : <span style={{color:C.muted,fontSize:11,gridColumn:"2/5"}}>Não atende</span>}
-        </div>
-      ))}
-      {msg&&<div style={{color:C.success,fontSize:11,marginTop:6}}>{msg}</div>}
-      <Btn v="i" onClick={salvarHorarios} disabled={salvando} style={{marginTop:8,fontSize:11}}>
-        {salvando?<><Spin s={11} c={C.info}/>Salvando...</>:<><I.Check s={11}/> Salvar Horários</>}
-      </Btn>
-    </div>
-  );
-}
-
 function Cadastros({data,insert,update,remove,user}) {
   const [aba,setAba] = useState("fp");
-  const [catAba,setCatAba] = useState("categorias");
   const [modal,setModal] = useState(false);
   const [editing,setEditing] = useState(null);
   const [form,setForm] = useState({});
@@ -4422,14 +3503,11 @@ function Cadastros({data,insert,update,remove,user}) {
   };
 
   const salvar = async () => {
-    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",prof:"profissionais",cat:catAba==="contasdre"?"contas_dre":"categorias_financeiras"};
+    const tableMap = {fp:"formas_pagamento",cb:"contas_bancarias",prof:"profissionais"};
     const table = tableMap[aba];
     if(!table) return;
-    let rec = form;
-    if(table==="categorias_financeiras") rec = {...form, conta_dre_id: form.conta_dre_id?Number(form.conta_dre_id):null};
-    if(table==="contas_dre") rec = {...form, ordem: Number(form.ordem)||0, tipo: grupoDRE(form.grupo)?.tipo||"despesa"};
-    if(editing){ await update(table,editing.id,rec); }
-    else { await insert(table,rec); }
+    if(editing){ await update(table,editing.id,form); }
+    else { await insert(table,form); }
     setModal(false); setEditing(null); setForm({});
   };
 
@@ -4444,7 +3522,7 @@ function Cadastros({data,insert,update,remove,user}) {
       <PH title="Cadastros" sub="Configurações e dados auxiliares"/>
 
       <div style={{display:"flex",gap:7,marginBottom:16,flexWrap:"wrap"}}>
-        {[["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["cat","Categorias"],["prof","Profissionais"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
+        {[["fp","Formas de Pagamento"],["cb","Contas e Caixa"],["prof","Profissionais"],["usuarios","Usuários"],["lembretes","Lembretes WhatsApp"]].map(a=>(
           <button key={a[0]} onClick={()=>{setAba(a[0]);setModal(false);setMsgUser("");}}
             style={{padding:"7px 14px",borderRadius:8,border:`1px solid ${aba===a[0]?C.accent:C.border}`,background:aba===a[0]?C.accentSoft:"transparent",color:aba===a[0]?C.accent:C.muted,fontSize:12,fontWeight:aba===a[0]?700:400,cursor:"pointer"}}>
             {a[1]}
@@ -4515,83 +3593,40 @@ function Cadastros({data,insert,update,remove,user}) {
         </Mod>}
       </>}
 
-      {/* CATEGORIAS FINANCEIRAS + CONTAS DO DRE */}
-      {aba==="cat"&&<>
-        <div style={{display:"flex",gap:7,marginBottom:14}}>
-          {[["categorias","Categorias"],["contasdre","Contas do DRE"]].map(([id,label])=>(
-            <button key={id} onClick={()=>{setCatAba(id);setModal(false);setEditing(null);}} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${catAba===id?C.accent:C.border}`,background:catAba===id?C.accentSoft:"transparent",color:catAba===id?C.accent:C.muted,fontSize:11,fontWeight:catAba===id?700:400,cursor:"pointer"}}>{label}</button>
-          ))}
+      {/* CONTAS A PAGAR */}
+      {aba==="cp"&&<>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
+          <Btn onClick={()=>abrirModal(null,{descricao:"",fornecedor:"",categoria:"",valor:0,vencimento:today(),status:"aberto"})}><I.Plus s={12}/> Lançar</Btn>
         </div>
-
-        {catAba==="contasdre"&&<>
-          <p style={{color:C.muted,fontSize:11,marginBottom:11}}>As "Contas do DRE" são as linhas do Demonstrativo de Resultado. Os 7 grupos seguem o formato padrão contábil (Receita Bruta, Deduções, Custos, Despesas Operacionais, Resultado Financeiro, Impostos) — dentro de cada grupo você cadastra as contas que fizerem sentido pra sua clínica.</p>
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
-            <Btn onClick={()=>abrirModal(null,{nome:"",grupo:"despesas_operacionais",ordem:0,ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
+        <ST cols={["Descrição","Fornecedor","Categoria","Vencimento","Valor","Status","Ações"]}
+          rows={(data.contas_pagar||[]).map(cp=>[
+            <span style={{fontWeight:600,fontSize:12}}>{cp.descricao}</span>,
+            <span style={{color:C.muted,fontSize:11}}>{cp.fornecedor||"—"}</span>,
+            <span style={{color:C.muted,fontSize:11}}>{cp.categoria||"—"}</span>,
+            <span style={{fontSize:11,color:cp.status==="aberto"&&cp.vencimento<today()?C.danger:C.text}}>{fmtDate(cp.vencimento)}</span>,
+            <span style={{color:C.danger,fontWeight:700}}>{fmt(cp.valor)}</span>,
+            <Badge text={cp.status} color={cp.status==="quitado"?C.success:cp.status==="cancelado"?C.muted:C.warn}/>,
+            <div style={{display:"flex",gap:4}}>
+              {cp.status==="aberto"&&<Btn v="ok" onClick={()=>update("contas_pagar",cp.id,{status:"quitado",data_baixa:today()})} style={{padding:"3px 8px",fontSize:10}}>Quitar</Btn>}
+              {cp.status==="aberto"&&<Btn v="d" onClick={()=>update("contas_pagar",cp.id,{status:"cancelado"})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>}
+              <Btn v="g" onClick={()=>abrirModal(cp,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
+            </div>
+          ])}
+        />
+        {modal&&<Mod title={editing?"Editar Conta a Pagar":"Nova Conta a Pagar"} onClose={()=>{setModal(false);setEditing(null);}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Descrição" value={form.descricao||""} onChange={e=>fv("descricao",e.target.value)} style={{gridColumn:"1/-1"}}/>
+            <Inp label="Fornecedor" value={form.fornecedor||""} onChange={e=>fv("fornecedor",e.target.value)}/>
+            <Inp label="Categoria" value={form.categoria||""} onChange={e=>fv("categoria",e.target.value)} placeholder="Imóvel, Insumos..."/>
+            <Inp label="Valor (R$)" type="number" value={form.valor||0} onChange={e=>fv("valor",e.target.value)}/>
+            <Inp label="Vencimento" type="date" value={form.vencimento||today()} onChange={e=>fv("vencimento",e.target.value)}/>
+            <Sel label="Status" value={form.status||"aberto"} onChange={e=>fv("status",e.target.value)} options={[{value:"aberto",label:"Aberto"},{value:"quitado",label:"Quitado"},{value:"cancelado",label:"Cancelado"}]}/>
           </div>
-          {GRUPOS_DRE.map(g=>{
-            const contas=(data.contas_dre||[]).filter(cd=>cd.grupo===g.id).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
-            if(contas.length===0) return null;
-            return(
-              <div key={g.id} style={{marginBottom:16}}>
-                <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:.6,textTransform:"uppercase",marginBottom:6}}>{g.label}</div>
-                <ST cols={["Conta do DRE","Ordem","Status","Ações"]}
-                  rows={contas.map(cd=>[
-                    <span style={{fontWeight:600}}>{cd.nome}</span>,
-                    <span style={{color:C.muted,fontSize:11}}>{cd.ordem||0}</span>,
-                    <Badge text={cd.ativo?"Ativa":"Inativa"} color={cd.ativo?C.success:C.muted}/>,
-                    <div style={{display:"flex",gap:4}}>
-                      <Btn v="g" onClick={()=>abrirModal(cd,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
-                      <Btn v="d" onClick={()=>update("contas_dre",cd.id,{ativo:!cd.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
-                    </div>
-                  ])}
-                />
-              </div>
-            );
-          })}
-          {(data.contas_dre||[]).length===0 && <p style={{color:C.muted,fontSize:13,textAlign:"center",padding:20}}>Nenhuma conta do DRE cadastrada.</p>}
-          {modal&&<Mod title={editing?"Editar Conta do DRE":"Nova Conta do DRE"} onClose={()=>{setModal(false);setEditing(null);}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
-              <Sel label="Grupo do DRE" value={form.grupo||"despesas_operacionais"} onChange={e=>fv("grupo",e.target.value)} options={GRUPOS_DRE.map(g=>({value:g.id,label:g.label}))} style={{gridColumn:"1/-1"}}/>
-              <Inp label="Ordem de exibição" type="number" value={form.ordem||0} onChange={e=>fv("ordem",e.target.value)}/>
-            </div>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
-              <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
-              <Btn onClick={salvar}><I.Check s={12}/> Salvar</Btn>
-            </div>
-          </Mod>}
-        </>}
-
-        {catAba==="categorias"&&<>
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:11}}>
-            <Btn onClick={()=>abrirModal(null,{nome:"",tipo:"despesa",conta_dre_id:"",ativo:true})}><I.Plus s={12}/> Adicionar</Btn>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+            <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
+            <Btn onClick={salvar}><I.Check s={12}/> Salvar</Btn>
           </div>
-          <ST cols={["Categoria","Tipo","Conta do DRE","Status","Ações"]}
-            rows={(data.categorias_financeiras||[]).map(cf=>[
-              <span style={{fontWeight:600}}>{cf.nome}</span>,
-              <Badge text={cf.tipo==="receita"?"Receita":"Despesa"} color={cf.tipo==="receita"?C.success:C.danger}/>,
-              <span style={{color:C.muted,fontSize:11}}>{(data.contas_dre||[]).find(cd=>cd.id===cf.conta_dre_id)?.nome||"— (não entra no DRE)"}</span>,
-              <Badge text={cf.ativo?"Ativa":"Inativa"} color={cf.ativo?C.success:C.muted}/>,
-              <div style={{display:"flex",gap:4}}>
-                <Btn v="g" onClick={()=>abrirModal(cf,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
-                <Btn v="d" onClick={()=>update("categorias_financeiras",cf.id,{ativo:!cf.ativo})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
-              </div>
-            ])}
-            empty="Nenhuma categoria cadastrada."
-          />
-          {modal&&<Mod title={editing?"Editar Categoria":"Nova Categoria"} onClose={()=>{setModal(false);setEditing(null);}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <Inp label="Nome" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
-              <Sel label="Tipo" value={form.tipo||"despesa"} onChange={e=>setForm(f=>({...f,tipo:e.target.value,conta_dre_id:""}))} options={[{value:"despesa",label:"Despesa"},{value:"receita",label:"Receita"}]}/>
-            </div>
-            <Sel label="Conta do DRE (opcional — deixe em branco se não deve entrar no DRE)" value={form.conta_dre_id||""} onChange={e=>fv("conta_dre_id",e.target.value)}
-              options={[{value:"",label:"Não entra no DRE"}, ...(data.contas_dre||[]).filter(cd=>cd.tipo===(form.tipo||"despesa")&&cd.ativo!==false).map(cd=>({value:cd.id,label:cd.nome}))]}/>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
-              <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
-              <Btn onClick={salvar}><I.Check s={12}/> Salvar</Btn>
-            </div>
-          </Mod>}
-        </>}
+        </Mod>}
       </>}
 
       {/* PROFISSIONAIS */}
@@ -4610,7 +3645,7 @@ function Cadastros({data,insert,update,remove,user}) {
             <Btn v="g" onClick={()=>abrirModal(p,{})} style={{padding:"3px 7px"}}><I.Edit s={11}/></Btn>
           ])}
         />
-        {modal&&<Mod title={editing?"Editar Profissional":"Novo Profissional"} onClose={()=>{setModal(false);setEditing(null);}} wide>
+        {modal&&<Mod title={editing?"Editar Profissional":"Novo Profissional"} onClose={()=>{setModal(false);setEditing(null);}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <Inp label="Nome completo" value={form.nome||""} onChange={e=>fv("nome",e.target.value)} style={{gridColumn:"1/-1"}}/>
             <Inp label="Especialidade" value={form.especialidade||""} onChange={e=>fv("especialidade",e.target.value)}/>
@@ -4626,7 +3661,7 @@ function Cadastros({data,insert,update,remove,user}) {
               <input type="color" value={form.cor||"#C9A96E"} onChange={e=>fv("cor",e.target.value)} style={{width:"100%",height:40,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,cursor:"pointer"}}/>
             </div>
           </div>
-          <div style={{background:C.accentSoft,borderRadius:9,padding:"11px 13px",marginTop:4,marginBottom:14}}>
+          <div style={{background:C.accentSoft,borderRadius:9,padding:"11px 13px",marginTop:4,marginBottom:6}}>
             <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer"}}>
               <input type="checkbox" checked={!!form.permite_cadastros} onChange={e=>fv("permite_cadastros",e.target.checked)} style={{marginTop:2,accentColor:C.accent,width:16,height:16}}/>
               <div>
@@ -4635,11 +3670,6 @@ function Cadastros({data,insert,update,remove,user}) {
               </div>
             </label>
           </div>
-
-          {/* Horário de trabalho — só faz sentido para profissional já existente (precisa de id) */}
-          {editing && <HorarioTrabalhoEditor profissionalId={editing.id} horarios={data.horarios_profissional||[]} insert={insert} update={update}/>}
-          {!editing && <div style={{background:C.warn+"10",border:`1px solid ${C.warn}25`,borderRadius:9,padding:"9px 12px",marginBottom:10}}><span style={{color:C.warn,fontSize:11}}>Salve o profissional primeiro para depois configurar o horário de trabalho.</span></div>}
-
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
             <Btn v="g" onClick={()=>{setModal(false);setEditing(null);}}>Cancelar</Btn>
             <Btn onClick={salvar} disabled={!form.nome}><I.Check s={12}/> Salvar</Btn>
@@ -5049,7 +4079,7 @@ function ChatIA({data, user}) {
     const rec=data.atendimentos.reduce((s,a)=>s+(Number(a.valor_final||a.valor)||0),0);
     let ctx;
     if(isSupervisor){
-      const desp=(data.contas_pagar||[]).reduce((s,d)=>s+(Number(d.valor)||0),0);
+      const desp=[...data.despesas_fixas,...data.despesas_variaveis].reduce((s,d)=>s+(Number(d.valor)||0),0);
       const critico=data.produtos.filter(p=>p.estoque_atual<=p.estoque_minimo).map(p=>p.nome);
       const vips=data.pacientes.filter(p=>(p.total_gasto||0)>3000);
       ctx=`Você é a IA de gestão da clínica de estética avançada "${data?.clinica||"VPBeauty"}". 
@@ -5104,346 +4134,32 @@ Responda em português, de forma direta e objetiva. Máx 4 frases.`;
 
 
 /* ─── LANDING PAGE ───────────────────────────────────────────── */
-/* ─── PROGRAMA DE AFILIADOS ──────────────────────────────────────
-   Contrato gerado dinamicamente com os dados do afiliado no momento
-   da assinatura. Este texto é um rascunho funcional — recomenda-se
-   revisão jurídica antes do uso comercial oficial.                */
-const gerarTextoContratoAfiliado = ({nome, cpf, email, codigo, percentual, valorMinimo, mesesInatividade}) => `
-CONTRATO DE ADESÃO AO PROGRAMA DE INDICAÇÃO VPBEAUTY
-
-Pelo presente instrumento particular, de um lado VIRTUALPLAN, doravante denominada "VPBEAUTY", e de outro lado ${nome}, portador(a) do CPF ${cpf}, e-mail ${email}, doravante denominado(a) "AFILIADO(A)", têm entre si justo e acordado o seguinte:
-
-1. OBJETO
-1.1. O presente contrato tem por objeto a adesão do(a) AFILIADO(A) ao Programa de Indicação VPBeauty, por meio do qual o(a) AFILIADO(A) poderá indicar novos clientes ao sistema VPBeauty utilizando seu código pessoal de afiliado: ${codigo}.
-
-2. NATUREZA DA RELAÇÃO
-2.1. O presente contrato caracteriza exclusivamente um programa de indicação, não configurando, em nenhuma hipótese, vínculo empregatício, societário, de representação comercial ou qualquer outra relação de subordinação entre as partes.
-2.2. O(A) AFILIADO(A) atua de forma autônoma e independente, não possuindo poderes para representar, contratar ou assumir obrigações em nome da VPBeauty.
-
-3. COMISSIONAMENTO
-3.1. O(A) AFILIADO(A) fará jus a uma comissão de ${percentual}% (${percentual} por cento) sobre o valor efetivamente pago por cada cliente indicado através de seu código pessoal, enquanto este permanecer com assinatura ativa junto à VPBeauty.
-3.2. A comissão é vitalícia enquanto durar a assinatura do cliente indicado. Caso o cliente indicado cancele, deixe de pagar ou encerre sua assinatura, a comissão correspondente cessa a partir desse momento, não gerando qualquer direito adquirido ao(à) AFILIADO(A) sobre pagamentos futuros daquele cliente.
-3.3. Os valores de comissão devidos serão apurados e disponibilizados na área do(a) AFILIADO(A) no sistema.
-
-4. PAGAMENTO DAS COMISSÕES
-4.1. O pagamento das comissões acumuladas será realizado via Pix, na chave cadastrada pelo(a) AFILIADO(A), somente quando o saldo disponível atingir o valor mínimo de R$ ${valorMinimo} (${valorMinimo} reais).
-4.2. Saldos inferiores ao valor mínimo permanecem acumulados até que o patamar seja atingido, não havendo prazo máximo de acúmulo, exceto em caso de descredenciamento nos termos da cláusula 6.
-
-5. FALECIMENTO DO AFILIADO
-5.1. Em caso de falecimento do(a) AFILIADO(A), o presente contrato se extingue automaticamente, e os direitos de comissionamento aqui previstos não se transferem, sob qualquer forma, a herdeiros, sucessores ou terceiros.
-
-6. DESCREDENCIAMENTO
-6.1. O(A) AFILIADO(A) que permanecer ${mesesInatividade} (${mesesInatividade}) meses consecutivos sem realizar nenhuma nova indicação válida poderá ser descredenciado(a) do Programa, a critério exclusivo da VPBeauty, mediante comunicação prévia.
-6.2. O descredenciamento não afeta o direito ao recebimento de comissões já apuradas e ainda não pagas até a data do desligamento, respeitado o valor mínimo de saque previsto na cláusula 4.1.
-
-7. DISPOSIÇÕES GERAIS
-7.1. A VPBeauty poderá alterar as condições deste Programa a qualquer tempo, mediante comunicação ao(à) AFILIADO(A), sendo a permanência no Programa após a comunicação interpretada como aceite às novas condições.
-7.2. Este contrato é regido pelas leis brasileiras, elegendo as partes o foro do domicílio da VPBeauty para dirimir eventuais controvérsias.
-
-Ao assinar digitalmente abaixo, o(a) AFILIADO(A) declara ter lido, compreendido e aceitado integralmente os termos deste contrato.
-`.trim();
-
-function CadastroAfiliadoModal({onClose, onSuccess}) {
-  const [etapa,setEtapa]=useState(1);
-  const [form,setForm]=useState({nome:"",cpf:"",email:"",telefone:"",senha:"",chave_pix:"",tipo_chave_pix:"cpf"});
-  const [assinatura,setAssinatura]=useState("");
-  const [showSig,setShowSig]=useState(false);
-  const [erro,setErro]=useState("");
-  const [loading,setLoading]=useState(false);
-  const f=(k,v)=>setForm(p=>({...p,[k]:v}));
-
-  const gerarCodigo = (nome) => {
-    const base = nome.trim().split(" ")[0].toUpperCase().replace(/[^A-Z]/g,"").slice(0,8);
-    return `${base}${Math.floor(1000+Math.random()*9000)}`;
-  };
-
-  const percentualPadrao = 20, valorMinimoPadrao = 200, mesesInatividadePadrao = 6;
-  const [codigoGerado,setCodigoGerado] = useState("");
-
-  const validarEtapa1 = () => {
-    if(!form.nome.trim()) return "Informe seu nome completo.";
-    if(!form.cpf.trim()) return "Informe seu CPF.";
-    if(!form.email.trim()) return "Informe seu e-mail.";
-    if(!form.senha||form.senha.length<6) return "A senha precisa ter ao menos 6 caracteres.";
-    if(!form.chave_pix.trim()) return "Informe sua chave Pix para recebimento.";
-    return "";
-  };
-
-  const avancar = () => {
-    const err = validarEtapa1();
-    if(err){ setErro(err); return; }
-    setErro("");
-    /* Gera o código UMA vez — o mesmo exibido no contrato deve ser o salvo ao final */
-    if(!codigoGerado) setCodigoGerado(gerarCodigo(form.nome));
-    setEtapa(2);
-  };
-
-  const finalizarCadastro = async () => {
-    if(!assinatura){ setErro("Assine o contrato para concluir o cadastro."); return; }
-    setLoading(true); setErro("");
-    const codigo = codigoGerado;
-    const textoContrato = gerarTextoContratoAfiliado({
-      nome:form.nome, cpf:maskCPF(form.cpf), email:form.email, codigo,
-      percentual:percentualPadrao, valorMinimo:valorMinimoPadrao, mesesInatividade:mesesInatividadePadrao,
-    });
-
-    if(DEMO_MODE){
-      await new Promise(r=>setTimeout(r,900));
-      setLoading(false);
-      onSuccess({codigo});
-      return;
-    }
-    const res = await sb.cadastrarAfiliado({
-      nome:form.nome, cpf:maskCPF(form.cpf), email:form.email, telefone:maskFone(form.telefone),
-      senha:form.senha, chavePix:form.chave_pix, tipoChavePix:form.tipo_chave_pix, codigo,
-      textoContrato, assinaturaBase64:assinatura,
-    });
-    setLoading(false);
-    if(res.erro){ setErro(res.erro); return; }
-    onSuccess({codigo});
-  };
-
-  return(
-    <div style={{position:"fixed",inset:0,background:"#4A3D6280",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="fu" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,width:"100%",maxWidth:540,maxHeight:"92vh",overflowY:"auto"}}>
-        <div style={{padding:"20px 24px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div className="cm" style={{fontSize:17,fontWeight:600,color:T.text}}>Seja uma Afiliada VPBeauty</div>
-            <div style={{color:T.mutedLt,fontSize:11,marginTop:2}}>{etapa===1?"Seus dados":"Contrato de adesão"}</div>
-          </div>
-          <button onClick={onClose} style={{background:"none",border:"none",color:T.muted}}><I.X c={T.muted} s={18}/></button>
-        </div>
-
-        <div style={{padding:24}}>
-          {etapa===1&&<>
-            <Inp label="Nome completo" value={form.nome} onChange={e=>f("nome",e.target.value)} placeholder="Seu nome completo"/>
-            <Inp label="CPF" value={form.cpf} onChange={e=>f("cpf",maskCPF(e.target.value))} placeholder="000.000.000-00"/>
-            <Inp label="E-mail" type="email" value={form.email} onChange={e=>f("email",e.target.value)} placeholder="seu@email.com"/>
-            <Inp label="WhatsApp" value={form.telefone} onChange={e=>f("telefone",maskFone(e.target.value))} placeholder="(11) 99999-9999"/>
-            <Inp label="Senha de acesso" type="password" value={form.senha} onChange={e=>f("senha",e.target.value)} placeholder="Mín. 6 caracteres"/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <Sel label="Tipo de chave Pix" value={form.tipo_chave_pix} onChange={e=>f("tipo_chave_pix",e.target.value)} options={[{value:"cpf",label:"CPF"},{value:"email",label:"E-mail"},{value:"telefone",label:"Telefone"},{value:"aleatoria",label:"Chave aleatória"}]}/>
-              <Inp label="Chave Pix" value={form.chave_pix} onChange={e=>f("chave_pix",e.target.value)} placeholder="Sua chave para receber"/>
-            </div>
-            {erro&&<div style={{background:T.danger+"14",border:`1px solid ${T.danger}30`,borderRadius:8,padding:"9px 12px",marginTop:4,marginBottom:10,color:T.danger,fontSize:12}}>{erro}</div>}
-            <button className="gb" onClick={avancar} style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:9,padding:"12px",fontWeight:700,fontSize:13,cursor:"pointer",marginTop:8}}>Continuar para o contrato →</button>
-          </>}
-
-          {etapa===2&&<>
-            <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:14,maxHeight:280,overflowY:"auto",marginBottom:14}}>
-              <pre style={{color:T.mutedLt,fontSize:10.5,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"inherit",margin:0}}>
-                {gerarTextoContratoAfiliado({nome:form.nome,cpf:maskCPF(form.cpf),email:form.email,codigo:codigoGerado,percentual:percentualPadrao,valorMinimo:valorMinimoPadrao,mesesInatividade:mesesInatividadePadrao})}
-              </pre>
-            </div>
-
-            {!assinatura ? <>
-              {!showSig
-                ? <button className="ob" onClick={()=>setShowSig(true)} style={{width:"100%",background:"transparent",color:T.gold,border:`1px solid ${T.gold}50`,borderRadius:9,padding:"11px",fontWeight:600,fontSize:12,cursor:"pointer"}}>✍️ Assinar contrato digitalmente</button>
-                : <SignaturePad onSave={(b64)=>{setAssinatura(b64);setShowSig(false);}} onCancel={()=>setShowSig(false)}/>
-              }
-            </> : <div style={{background:T.success+"10",border:`1px solid ${T.success}30`,borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
-              <I.Check c={T.success} s={16}/>
-              <span style={{color:T.success,fontSize:12,fontWeight:600}}>Contrato assinado digitalmente</span>
-              <button onClick={()=>setAssinatura("")} style={{marginLeft:"auto",background:"none",border:"none",color:T.muted,fontSize:11,cursor:"pointer"}}>Assinar de novo</button>
-            </div>}
-
-            {erro&&<div style={{background:T.danger+"14",border:`1px solid ${T.danger}30`,borderRadius:8,padding:"9px 12px",marginTop:10,color:T.danger,fontSize:12}}>{erro}</div>}
-
-            <div style={{display:"flex",gap:8,marginTop:16}}>
-              <button onClick={()=>setEtapa(1)} style={{flex:1,background:"transparent",color:T.mutedLt,border:`1px solid ${T.border}`,borderRadius:9,padding:"11px",fontWeight:500,fontSize:12,cursor:"pointer"}}>Voltar</button>
-              <button className="gb gl" onClick={finalizarCadastro} disabled={loading||!assinatura} style={{flex:2,background:T.gold,color:"#FFFFFF",border:"none",borderRadius:9,padding:"11px",fontWeight:700,fontSize:13,cursor:"pointer",opacity:loading||!assinatura?0.6:1}}>
-                {loading?"Cadastrando...":"Concluir cadastro →"}
-              </button>
-            </div>
-          </>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─── ÁREA DA AFILIADA ───────────────────────────────────────── */
-function AreaAfiliado({user, onLogout}) {
-  const [indicacoes,setIndicacoes] = useState([]);
-  const [saques,setSaques] = useState([]);
-  const [config,setConfig] = useState({afiliado_valor_minimo_saque:200});
-  const [loading,setLoading] = useState(true);
-  const [modalSaque,setModalSaque] = useState(false);
-  const [msgSaque,setMsgSaque] = useState("");
-
-  const carregar = async () => {
-    setLoading(true);
-    if(DEMO_MODE){
-      setIndicacoes([
-        {id:1,clinica_nome:"Studio Bella Vitta",valor_assinatura:399,comissao_valor:79.8,status:"pendente",referencia:"Junho/2026",created_at:"2026-06-05"},
-        {id:2,clinica_nome:"Espaço Renovare",valor_assinatura:3990,comissao_valor:798,status:"paga",referencia:"Maio/2026",created_at:"2026-05-12"},
-      ]);
-      setSaques([{id:1,valor:798,status:"pago",data_solicitacao:"2026-05-20",data_pagamento:"2026-05-22"}]);
-      setConfig({afiliado_valor_minimo_saque:200});
-      setLoading(false);
-      return;
-    }
-    try {
-      const [ind, saq, cfg] = await Promise.all([
-        sb.get("afiliado_indicacoes", `afiliado_id=eq.${user.afiliadoId}&order=created_at.desc`),
-        sb.get("afiliado_saques", `afiliado_id=eq.${user.afiliadoId}&order=data_solicitacao.desc`),
-        sb.get("config_sistema",""),
-      ]);
-      setIndicacoes(ind||[]); setSaques(saq||[]);
-      if(cfg?.[0]) setConfig(cfg[0]);
-    } catch(e){ console.error(e); }
-    setLoading(false);
-  };
-  useEffect(()=>{ carregar(); },[]); // eslint-disable-line
-
-  const totalPendente = indicacoes.filter(i=>i.status==="pendente").reduce((s,i)=>s+(Number(i.comissao_valor)||0),0);
-  const totalPago = indicacoes.filter(i=>i.status==="paga").reduce((s,i)=>s+(Number(i.comissao_valor)||0),0);
-  const totalSacado = saques.filter(s=>s.status==="pago").reduce((s,x)=>s+(Number(x.valor)||0),0);
-  const saldoDisponivel = totalPago - totalSacado;
-  const valorMinimo = Number(config.afiliado_valor_minimo_saque)||200;
-  const podeSacar = saldoDisponivel >= valorMinimo;
-
-  const linkIndicacao = typeof window!=="undefined" ? `${window.location.origin}?ref=${user.codigo}` : "";
-  const [copiado,setCopiado] = useState(false);
-  const copiarLink = () => { navigator.clipboard?.writeText(linkIndicacao); setCopiado(true); setTimeout(()=>setCopiado(false),2000); };
-
-  const solicitarSaque = async () => {
-    if(!podeSacar) return;
-    setMsgSaque("");
-    if(DEMO_MODE){ setMsgSaque("✓ Saque solicitado (modo demo)."); setModalSaque(false); return; }
-    try {
-      await sb.post("afiliado_saques", {afiliado_id:user.afiliadoId, valor:saldoDisponivel, status:"solicitado"});
-      setMsgSaque("✓ Saque solicitado! Você será avisada quando o Pix for enviado.");
-      setModalSaque(false);
-      carregar();
-    } catch(e){ setMsgSaque("Erro ao solicitar saque."); }
-  };
-
-  if(loading) return (
-    <div style={{display:"flex",height:"100vh",background:C.bg,alignItems:"center",justifyContent:"center",fontFamily:"'Inter',sans-serif"}}>
-      <div style={{textAlign:"center"}}><div className="sp" style={{width:40,height:40,border:`3px solid ${C.accent}25`,borderTop:`3px solid ${C.accent}`,borderRadius:"50%",margin:"0 auto 14px"}}/><div style={{color:C.muted,fontSize:13}}>Carregando sua área...</div></div>
-    </div>
-  );
-
-  return (
-    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Inter',sans-serif"}}>
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:"14px clamp(16px,4vw,32px)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <LogoMark size={30}/>
-          <div>
-            <div style={{color:C.text,fontWeight:700,fontSize:14}}>Área da Afiliada</div>
-            <div style={{color:C.muted,fontSize:10}}>{user.nome}</div>
-          </div>
-        </div>
-        <button onClick={onLogout} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 14px",color:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-          <I.Out c={C.muted} s={13}/> Sair
-        </button>
-      </div>
-
-      <div style={{padding:"clamp(16px,3vw,28px)",maxWidth:900,margin:"0 auto"}}>
-        {/* Código e link */}
-        <div style={{background:`linear-gradient(145deg,#FFFFFF,#FBF6E8)`,border:`1.5px solid ${C.gold}45`,borderRadius:14,padding:20,marginBottom:20}}>
-          <div style={{color:C.muted,fontSize:11,marginBottom:5}}>Seu código de afiliada</div>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <span className="cm" style={{fontSize:24,fontWeight:700,color:C.gold,letterSpacing:1}}>{user.codigo}</span>
-          </div>
-          <div style={{marginTop:12,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <input readOnly value={linkIndicacao} style={{flex:1,minWidth:200,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:12}}/>
-            <Btn onClick={copiarLink}>{copiado?<><I.Check s={12}/> Copiado!</>:<><I.Copy s={12}/> Copiar link</>}</Btn>
-          </div>
-        </div>
-
-        {/* KPIs */}
-        <div className="stat-row" style={{display:"flex",gap:11,marginBottom:20,flexWrap:"wrap"}}>
-          <SC label="Saldo Disponível" value={fmt(saldoDisponivel)} Icon={I.Dollar} color={C.success}/>
-          <SC label="A Confirmar" value={fmt(totalPendente)} Icon={I.Warn} color={C.warn} sub="Ainda não liberado"/>
-          <SC label="Total Já Recebido" value={fmt(totalSacado)} Icon={I.Check} color={C.accent}/>
-          <SC label="Clientes Indicados" value={indicacoes.length} Icon={I.User} color={C.info}/>
-        </div>
-
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
-          <div style={{color:C.muted,fontSize:12}}>Valor mínimo para saque: <strong style={{color:C.text}}>{fmt(valorMinimo)}</strong></div>
-          <Btn onClick={()=>setModalSaque(true)} disabled={!podeSacar}>
-            <I.Dollar s={12}/> {podeSacar?"Solicitar Saque":`Faltam ${fmt(valorMinimo-saldoDisponivel)}`}
-          </Btn>
-        </div>
-        {msgSaque&&<div style={{background:C.success+"14",border:`1px solid ${C.success}30`,borderRadius:8,padding:"9px 12px",marginBottom:14,color:C.success,fontSize:12}}>{msgSaque}</div>}
-
-        <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:11}}>Clientes Indicados</h3>
-        <ST cols={["Clínica","Referência","Valor Assinatura","Sua Comissão","Status"]}
-          rows={indicacoes.map(i=>[
-            <span style={{fontWeight:600}}>{i.clinica_nome}</span>,
-            <span style={{fontSize:11}}>{i.referencia}</span>,
-            <span style={{fontSize:11}}>{fmt(i.valor_assinatura)}</span>,
-            <span style={{color:C.accent,fontWeight:700}}>{fmt(i.comissao_valor)}</span>,
-            <Badge text={i.status==="paga"?"Confirmada":"Pendente"} color={i.status==="paga"?C.success:C.warn}/>,
-          ])}
-          empty="Você ainda não tem indicações. Compartilhe seu link para começar!"
-        />
-
-        <h3 style={{color:C.text,fontSize:14,fontWeight:700,margin:"22px 0 11px"}}>Histórico de Saques</h3>
-        <ST cols={["Data da Solicitação","Valor","Status","Pago em"]}
-          rows={saques.map(s=>[
-            fmtDate(s.data_solicitacao), <span style={{color:C.accent,fontWeight:700}}>{fmt(s.valor)}</span>,
-            <Badge text={s.status==="pago"?"Pago":s.status==="rejeitado"?"Rejeitado":"Solicitado"} color={s.status==="pago"?C.success:s.status==="rejeitado"?C.danger:C.warn}/>,
-            s.data_pagamento?fmtDate(s.data_pagamento):"—",
-          ])}
-          empty="Nenhum saque solicitado ainda."
-        />
-      </div>
-
-      {modalSaque&&<Mod title="Solicitar Saque" onClose={()=>setModalSaque(false)}>
-        <div style={{background:C.surface,borderRadius:9,padding:12,marginBottom:13}}>
-          <div style={{color:C.muted,fontSize:11,marginBottom:3}}>Valor disponível para saque:</div>
-          <div style={{color:C.success,fontWeight:700,fontSize:20}}>{fmt(saldoDisponivel)}</div>
-        </div>
-        <p style={{color:C.muted,fontSize:12,marginBottom:14}}>O valor será enviado via Pix na chave cadastrada no seu contrato de afiliada.</p>
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <Btn v="g" onClick={()=>setModalSaque(false)}>Cancelar</Btn>
-          <Btn v="ok" onClick={solicitarSaque}><I.Check s={12}/> Confirmar Solicitação</Btn>
-        </div>
-      </Mod>}
-    </div>
-  );
-}
-
 function Landing({onLogin,onCheckout}) {
   const [scrolled,setScrolled]=useState(false);const [menuOpen,setMenuOpen]=useState(false);const [activeQ,setActiveQ]=useState(null);
-  const [modalAfiliado,setModalAfiliado]=useState(false);
-  const [afiliadoSucesso,setAfiliadoSucesso]=useState(null);
   useEffect(()=>{const fn=()=>setScrolled(window.scrollY>50);window.addEventListener("scroll",fn);return()=>window.removeEventListener("scroll",fn);},[]);
   const go=id=>{document.getElementById(id)?.scrollIntoView({behavior:"smooth"});setMenuOpen(false);};
-
   const feats=[
-    {Icon:I.Diamond,t:"Inteligência Artificial",d:"Uma assistente que conhece sua clínica de cor — responde sobre agenda, faturamento e estoque em segundos."},
-    {Icon:I.Bar,t:"Precificação Real",d:"Rateia cada despesa por atendimento. Você para de adivinhar e passa a saber, com precisão, quanto cada procedimento realmente rende."},
-    {Icon:I.Cal,t:"Agenda em Mês, Semana e Dia",d:"Visualize sua rotina do jeito que preferir, com horário de trabalho e bloqueios por profissional totalmente configuráveis."},
-    {Icon:I.User,t:"Ficha & Anamnese Digital",d:"Histórico completo, CPF e assinatura digital do cliente — elegância e segurança jurídica em um só lugar."},
-    {Icon:I.Box,t:"Estoque Inteligente",d:"Entradas, saídas e alertas automáticos. Nunca mais seja surpreendida por um insumo em falta."},
-    {Icon:I.Megaphone,t:"CRM & Lembretes por WhatsApp",d:"Segmentação de clientes e lembretes automáticos de horário — sua cliente nunca mais esquece um agendamento."},
-    {Icon:I.Dollar,t:"Financeiro Completo",d:"Contas a pagar e a receber, fluxo de caixa, DRE simplificado e caixa diário com conciliação — sua clínica, sob controle total."},
-    {Icon:I.Bank,t:"Comissões & Locação de Salas",d:"Calcule comissões automaticamente e administre o aluguel de salas, com contrato digital anexado."},
-    {Icon:I.Grid,t:"Múltiplos Profissionais",d:"Cada profissional acessa sua própria agenda e comissões; você mantém a visão completa do negócio."},
+    {Icon:I.Diamond,t:"IA Integrada",d:"Assistente com acesso aos dados reais: agenda, finanças e estoque."},
+    {Icon:I.Bar,t:"Formação de Preço",d:"Rateia aluguel e despesas por atendimento. Sabe exatamente quanto lucra."},
+    {Icon:I.Cal,t:"Agenda Completa",d:"Confirmação, cancelamento e conversão para atendimento em 1 clique."},
+    {Icon:I.User,t:"Ficha + Anamnese",d:"Histórico completo, CPF, anamnese com assinatura digital do cliente."},
+    {Icon:I.Box,t:"Estoque Avançado",d:"Extrato de movimentações, entradas de compra, alertas automáticos."},
+    {Icon:I.Megaphone,t:"CRM & Marketing",d:"Segmentação de clientes, campanhas WhatsApp e e-mail marketing."},
   ];
-
   const depos=[
-    {nome:"Camila Andrade",clinica:"Studio Éclat — São Paulo",txt:"Descobri que dois dos procedimentos mais vendidos eram, na verdade, os menos lucrativos. Ajustei os preços e o lucro cresceu 34% em um trimestre."},
-    {nome:"Fernanda Mello",clinica:"Lumina Estética — Rio de Janeiro",txt:"O CRM identificou doze clientes que não voltavam há noventa dias. Enviei uma mensagem e recuperei sete. Um resultado que eu jamais alcançaria sozinha."},
-    {nome:"Renata Silveira",clinica:"Atelier Renata — Belo Horizonte",txt:"A anamnese com assinatura digital trouxe uma segurança jurídica que eu não tinha antes. Elegante, rápida e absolutamente profissional."},
+    {nome:"Camila Andrade",clinica:"Studio Éclat — SP",txt:"Descobri que 2 procedimentos que mais vendia eram os menos lucrativos. Reajustei e aumentei o lucro em 34%."},
+    {nome:"Fernanda Mello",clinica:"Lumina Estética — RJ",txt:"O CRM me mostrou 12 clientes que não vinham há 90 dias. Mandei WhatsApp e recuperei 7. Incrível!"},
+    {nome:"Renata Silveira",clinica:"Atelier Renata — BH",txt:"A anamnese com assinatura digital me deu segurança jurídica. Profissional demais."},
   ];
-
   const faq=[
-    {q:"Posso experimentar antes de assinar?",r:"Ao assinar, você tem acesso completo e imediato ao sistema, com suporte dedicado nos primeiros sete dias para garantir que tudo funcione perfeitamente para sua rotina."},
-    {q:"O que acontece se eu cancelar?",r:"Você pode cancelar quando desejar, sem burocracia. Seus dados permanecem disponíveis por trinta dias para exportação."},
-    {q:"Quantas pessoas da minha equipe podem usar o sistema?",r:"Cada assinatura contempla até cinco usuários — supervisoras e profissionais, cada uma com o nível de acesso adequado à sua função."},
-    {q:"O VPBeauty funciona bem no celular?",r:"Totalmente. A experiência foi pensada para o toque, com navegação nativa no iPhone e Android, sem necessidade de instalar aplicativo algum."},
-    {q:"A inteligência artificial tem acesso aos meus dados reais?",r:"Sim. A assistente consulta, em tempo real, sua agenda, seu financeiro, seu estoque e o perfil de cada cliente para oferecer respostas precisas."},
-    {q:"Os lembretes de horário por WhatsApp são automáticos?",r:"Sim, por meio de integração opcional. Você também pode configurar as mensagens e os horários de envio conforme a identidade da sua clínica."},
-    {q:"Consigo administrar mais de uma profissional na mesma agenda?",r:"Sim. Cada profissional tem sua própria agenda, horário de trabalho e comissões, enquanto você mantém a visão consolidada do negócio inteiro."},
+    {q:"Posso testar antes de assinar?",r:"Ao assinar você tem acesso completo imediato com suporte nos primeiros 7 dias."},
+    {q:"O que acontece se eu cancelar?",r:"Cancele quando quiser. Dados disponíveis por 30 dias para exportação."},
+    {q:"Quantos usuários posso ter?",r:"Cada assinatura inclui até 5 usuários — recepcionista, profissionais e gestora."},
+    {q:"Funciona no celular?",r:"100% responsivo. Barra de navegação mobile nativa. Funciona no iPhone e Android sem instalar nada."},
+    {q:"A IA é conectada aos meus dados?",r:"Sim. O assistente tem acesso em tempo real à agenda, finanças, estoque e perfil dos pacientes."},
+    {q:"O envio de WhatsApp é automático?",r:"Sim, com integração Z-API (opcional). Você pode usar a interface de campanhas para envios manuais ou automatizados."},
   ];
-
   const GTag2=({children})=><span style={{display:"inline-flex",alignItems:"center",gap:6,background:"#C8A96A14",border:"1px solid #C8A96A35",borderRadius:40,padding:"5px 14px",color:"#C8A96A",fontSize:11,fontWeight:600,letterSpacing:1.4,textTransform:"uppercase"}}>{children}</span>;
-
   return(
     <div style={{background:T.bg,minHeight:"100vh",fontFamily:"'Inter',sans-serif"}}>
       {/* NAV */}
@@ -5454,7 +4170,7 @@ function Landing({onLogin,onCheckout}) {
             <div className="cm" style={{fontSize:19,fontWeight:600,color:T.text}}>VP<span style={{color:T.gold}}>Beauty</span></div>
           </div>
           <div className="hs" style={{display:"flex",gap:24,alignItems:"center"}}>
-            {[["dores","O Desafio"],["feats","A Solução"],["afiliados","Afiliadas"],["precos","Investimento"],["faq","Perguntas"]].map(([id,l])=>(
+            {[["dores","Problema"],["feats","Solução"],["precos","Preços"],["faq","FAQ"]].map(([id,l])=>(
               <button key={id} className="nl" onClick={()=>go(id)} style={{background:"none",border:"none",color:T.mutedLt,fontSize:12,fontWeight:500,cursor:"pointer"}}>{l}</button>
             ))}
           </div>
@@ -5465,7 +4181,7 @@ function Landing({onLogin,onCheckout}) {
           </div>
         </div>
         {menuOpen&&<div style={{background:T.surface,borderTop:`1px solid ${T.border}`,padding:"12px 18px"}}>
-          {[["O Desafio","dores"],["A Solução","feats"],["Investimento","precos"],["Perguntas","faq"]].map(([l,id])=>(
+          {[["O Problema","dores"],["A Solução","feats"],["Planos","precos"],["FAQ","faq"]].map(([l,id])=>(
             <button key={id} onClick={()=>go(id)} style={{display:"block",background:"none",border:"none",color:T.text,fontSize:14,padding:"9px 0",textAlign:"left",width:"100%",borderBottom:`1px solid ${T.border}`,cursor:"pointer"}}>{l}</button>
           ))}
           <div style={{display:"flex",gap:7,marginTop:10}}>
@@ -5474,69 +4190,45 @@ function Landing({onLogin,onCheckout}) {
           </div>
         </div>}
       </nav>
-
       {/* HERO */}
       <section style={{minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",padding:"100px clamp(16px,6vw,52px) 60px",textAlign:"center",position:"relative",overflow:"hidden"}}>
         <div style={{position:"absolute",top:"10%",left:"6%",width:320,height:320,borderRadius:"50%",background:`radial-gradient(circle,${T.gold}08,transparent 70%)`,pointerEvents:"none"}}/>
-        <div className="fu d1"><GTag2><I.Sparkle c={T.gold} s={10}/> Feito para clínicas de estética avançada</GTag2></div>
-        <h1 className="cm ht fu d2" style={{fontSize:"clamp(38px,7vw,76px)",fontWeight:300,lineHeight:1.1,color:T.text,margin:"22px 0 15px",maxWidth:820}}>Sua clínica merece uma<br/><span style={{fontStyle:"italic",color:T.gold}}>gestão à altura</span> do seu talento</h1>
-        <p className="fu d3" style={{color:T.mutedLt,fontSize:"clamp(13px,2vw,16px)",lineHeight:1.75,maxWidth:500,marginBottom:34}}>Inteligência artificial, agenda inteligente, precificação precisa e um financeiro completo — tudo o que sua clínica precisa para crescer com elegância e segurança, do primeiro agendamento à fidelização.</p>
+        <div className="fu d1"><GTag2><I.Sparkle c={T.gold} s={10}/> Sistema exclusivo para estética avançada</GTag2></div>
+        <h1 className="cm ht fu d2" style={{fontSize:"clamp(38px,7vw,76px)",fontWeight:300,lineHeight:1.1,color:T.text,margin:"22px 0 15px",maxWidth:780}}>Sua clínica merece uma<br/><span style={{fontStyle:"italic",color:T.gold}}>gestão à altura</span> do seu talento</h1>
+        <p className="fu d3" style={{color:T.mutedLt,fontSize:"clamp(13px,2vw,16px)",lineHeight:1.7,maxWidth:480,marginBottom:34}}>IA integrada, CRM inteligente, formação de preço e anamnese digital. Do agendamento à retenção de clientes.</p>
         <div className="fu d4 hero-btns" style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center",marginBottom:40}}>
           <button className="gb gl" onClick={()=>onCheckout("anual")} style={{background:T.gold,color:"#FFFFFF",border:"none",borderRadius:10,padding:"12px 26px",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:7,cursor:"pointer"}}>Começar agora <I.Arrow c="#FFFFFF" s={14}/></button>
-          <button className="ob" onClick={onLogin} style={{background:"transparent",color:T.mutedLt,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 22px",fontWeight:500,fontSize:13,cursor:"pointer"}}>Já sou cliente → Entrar</button>
+          <button className="ob" onClick={onLogin} style={{background:"transparent",color:T.mutedLt,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 22px",fontWeight:500,fontSize:13,cursor:"pointer"}}>Já tenho conta → Entrar</button>
         </div>
         <div className="fu d5" style={{display:"flex",gap:30,flexWrap:"wrap",justifyContent:"center"}}>
-          {[["+34%","lucro médio em 90 dias"],["-5h","de trabalho manual por semana"],["14","módulos integrados"],["100%","pensado para o mobile"]].map(([v,l])=>(
+          {[["+34%","lucro médio"],["-5h","economizadas/sem."],["11","módulos integrados"],["CRM","retenção de clientes"]].map(([v,l])=>(
             <div key={l} style={{textAlign:"center"}}><div className="cm" style={{fontSize:22,fontWeight:600,color:T.gold}}>{v}</div><div style={{color:T.muted,fontSize:11,marginTop:2}}>{l}</div></div>
           ))}
         </div>
       </section>
-
-      {/* O DESAFIO (dores) */}
-      <section id="dores" style={{padding:"66px clamp(16px,6vw,52px)",background:T.surface,borderTop:`1px solid ${T.border}`}}>
-        <div style={{maxWidth:920,margin:"0 auto"}}>
-          <div style={{textAlign:"center",marginBottom:40}}><GTag2>O desafio de gerir com beleza e precisão</GTag2><h2 className="cm" style={{fontSize:"clamp(20px,4vw,38px)",fontWeight:400,color:T.text,margin:"13px 0 12px",lineHeight:1.3}}>Talento em excesso.<br/><span style={{fontStyle:"italic",color:T.gold}}>Controle em falta.</span></h2>
-            <p style={{color:T.mutedLt,fontSize:13,lineHeight:1.8,maxWidth:600,margin:"0 auto"}}>Você domina técnicas, encanta clientes e constrói uma reputação impecável. Mas, entre planilhas soltas, agendas em papel e cálculos feitos de cabeça, a gestão consome um tempo que deveria estar dedicado ao que você faz de melhor.</p>
-          </div>
-          <div className="g2" style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:13}}>
-            {[
-              ["Preços no feeling","Sem saber o custo real de cada procedimento, é impossível garantir que cada atendimento seja, de fato, lucrativo."],
-              ["Agenda desorganizada","Horários confundidos, confirmações esquecidas e clientes que somem sem aviso — cada falha custa receita."],
-              ["Decisões sem dados","Sem relatórios claros, cada escolha de negócio se torna uma aposta, não uma estratégia."],
-            ].map(([t,d])=>(
-              <div key={t} className="fc" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:13,padding:"20px 18px"}}>
-                <h3 style={{color:T.text,fontSize:13,fontWeight:600,marginBottom:8}}>{t}</h3>
-                <p style={{color:T.muted,fontSize:11,lineHeight:1.7}}>{d}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* FEATURES (a solução) */}
-      <section id="feats" style={{padding:"66px clamp(16px,6vw,52px)"}}>
-        <div style={{maxWidth:1040,margin:"0 auto"}}>
-          <div style={{textAlign:"center",marginBottom:40}}><GTag2>A solução completa</GTag2><h2 className="cm" style={{fontSize:"clamp(20px,4vw,38px)",fontWeight:400,color:T.text,margin:"13px 0 8px",lineHeight:1.25}}>Tudo o que sua clínica precisa,<br/><span style={{fontStyle:"italic",color:T.gold}}>em um só lugar refinado.</span></h2></div>
+      {/* FEATURES */}
+      <section id="feats" style={{padding:"66px clamp(16px,6vw,52px)",background:T.surface,borderTop:`1px solid ${T.border}`}}>
+        <div style={{maxWidth:1000,margin:"0 auto"}}>
+          <div style={{textAlign:"center",marginBottom:40}}><GTag2>A solução completa</GTag2><h2 className="cm" style={{fontSize:"clamp(20px,4vw,38px)",fontWeight:400,color:T.text,margin:"13px 0 8px",lineHeight:1.25}}>Tudo em um sistema só.<br/><span style={{fontStyle:"italic",color:T.gold}}>11 módulos integrados.</span></h2></div>
           <div className="feat-grid" style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
-            {feats.map((f,i)=><div key={i} className="fc" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"18px 16px",boxShadow:"0 2px 10px #7C5CBF0A"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
-                <div style={{background:`${T.gold}13`,borderRadius:7,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><f.Icon c={T.gold} s={15}/></div>
-                <h3 style={{color:T.text,fontSize:12,fontWeight:600,lineHeight:1.3}}>{f.t}</h3>
+            {feats.map((f,i)=><div key={i} className="fc" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"17px 15px",boxShadow:"0 2px 10px #7C5CBF0A"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <div style={{background:`${T.gold}13`,borderRadius:7,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><f.Icon c={T.gold} s={14}/></div>
+                <h3 style={{color:T.text,fontSize:11,fontWeight:600,lineHeight:1.3}}>{f.t}</h3>
               </div>
-              <p style={{color:T.muted,fontSize:11,lineHeight:1.7}}>{f.d}</p>
+              <p style={{color:T.muted,fontSize:10,lineHeight:1.65}}>{f.d}</p>
             </div>)}
           </div>
         </div>
       </section>
-
       {/* DEPOIMENTOS */}
-      <section style={{padding:"60px clamp(16px,6vw,52px)",background:T.surface,borderTop:`1px solid ${T.border}`}}>
+      <section style={{padding:"60px clamp(16px,6vw,52px)",borderTop:`1px solid ${T.border}`}}>
         <div style={{maxWidth:920,margin:"0 auto"}}>
-          <div style={{textAlign:"center",marginBottom:38}}><GTag2>Resultados que falam por si</GTag2><h2 className="cm" style={{fontSize:"clamp(18px,4vw,34px)",fontWeight:400,color:T.text,margin:"12px 0"}}>O que dizem as clínicas que já vivem essa transformação</h2></div>
+          <div style={{textAlign:"center",marginBottom:38}}><GTag2>Resultados reais</GTag2><h2 className="cm" style={{fontSize:"clamp(18px,4vw,34px)",fontWeight:400,color:T.text,margin:"12px 0"}}>O que clínicas dizem após 30 dias</h2></div>
           <div className="g1" style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:13}}>
             {depos.map((d,i)=><div key={i} className="fc" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:13,padding:"18px 16px",boxShadow:"0 2px 10px #7C5CBF0A"}}>
               <div style={{display:"flex",gap:2,marginBottom:10}}>{Array(5).fill(0).map((_,j)=><I.Star key={j} c={T.gold} s={11}/>)}</div>
-              <p style={{color:T.text,fontSize:11,lineHeight:1.75,fontStyle:"italic",marginBottom:13}}>"{d.txt}"</p>
+              <p style={{color:T.text,fontSize:11,lineHeight:1.7,fontStyle:"italic",marginBottom:13}}>"{d.txt}"</p>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <div style={{width:28,height:28,borderRadius:"50%",background:`${T.gold}20`,display:"flex",alignItems:"center",justifyContent:"center",color:T.gold,fontWeight:700,fontSize:11}}>{d.nome[0]}</div>
                 <div><div style={{color:T.text,fontWeight:600,fontSize:11}}>{d.nome}</div><div style={{color:T.muted,fontSize:9}}>{d.clinica}</div></div>
@@ -5545,111 +4237,63 @@ function Landing({onLogin,onCheckout}) {
           </div>
         </div>
       </section>
-
-      {/* PLANOS (investimento) */}
-      <section id="precos" style={{padding:"66px clamp(16px,6vw,52px)"}}>
-        <div style={{maxWidth:720,margin:"0 auto"}}>
-          <div style={{textAlign:"center",marginBottom:40}}><GTag2>Investimento transparente</GTag2><h2 className="cm" style={{fontSize:"clamp(20px,4vw,38px)",fontWeight:400,color:T.text,margin:"13px 0 7px",lineHeight:1.25}}>Uma versão completa.<br/><span style={{fontStyle:"italic",color:T.gold}}>Sem letras miúdas.</span></h2></div>
+      {/* PLANOS */}
+      <section id="precos" style={{padding:"66px clamp(16px,6vw,52px)",background:T.surface,borderTop:`1px solid ${T.border}`}}>
+        <div style={{maxWidth:700,margin:"0 auto"}}>
+          <div style={{textAlign:"center",marginBottom:40}}><GTag2>Planos simples</GTag2><h2 className="cm" style={{fontSize:"clamp(20px,4vw,38px)",fontWeight:400,color:T.text,margin:"13px 0 7px",lineHeight:1.25}}>Uma versão. Tudo incluído.<br/><span style={{fontStyle:"italic",color:T.gold}}>Sem surpresas.</span></h2></div>
           <div className="plan-grid cs" style={{display:"flex",gap:13,alignItems:"stretch"}}>
             <div className="ph ws" style={{flex:1,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"24px 20px",display:"flex",flexDirection:"column"}}>
-              <div style={{color:T.mutedLt,fontSize:10,textTransform:"uppercase",letterSpacing:1.4,marginBottom:7}}>Plano Mensal</div>
+              <div style={{color:T.mutedLt,fontSize:10,textTransform:"uppercase",letterSpacing:1.4,marginBottom:7}}>Mensal</div>
               <div style={{display:"flex",alignItems:"flex-end",gap:5,marginBottom:18}}><span className="cm" style={{fontSize:44,fontWeight:600,color:T.text,lineHeight:1}}>399</span><span style={{color:T.muted,fontSize:12,marginBottom:5}}>R$/mês</span></div>
-              <div style={{flex:1}}>{["Até 5 usuárias","14 módulos completos","Inteligência artificial","CRM e campanhas por WhatsApp","Suporte via WhatsApp"].map(f=><div key={f} style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><I.Check c={T.success} s={11}/><span style={{color:T.text,fontSize:11}}>{f}</span></div>)}</div>
+              <div style={{flex:1}}>{["5 usuários","11 módulos","IA integrada","CRM & Marketing","Suporte WhatsApp"].map(f=><div key={f} style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><I.Check c={T.success} s={11}/><span style={{color:T.text,fontSize:11}}>{f}</span></div>)}</div>
               <button className="ob" onClick={()=>onCheckout("mensal")} style={{width:"100%",background:"transparent",color:T.gold,border:`1px solid ${T.gold}50`,borderRadius:9,padding:"10px",fontWeight:600,fontSize:12,marginTop:18,cursor:"pointer"}}>Assinar mensalmente</button>
             </div>
             <div className="ph ws" style={{flex:1,background:`linear-gradient(145deg,#FFFFFF,#FBF6E8)`,border:`1.5px solid ${T.gold}50`,borderRadius:16,padding:"24px 20px",display:"flex",flexDirection:"column",position:"relative",boxShadow:"0 8px 28px #7C5CBF14"}}>
               <div style={{position:"absolute",top:12,right:12,background:T.gold,color:"#FFFFFF",borderRadius:20,padding:"3px 10px",fontSize:8,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Melhor valor</div>
-              <div style={{color:T.gold,fontSize:10,textTransform:"uppercase",letterSpacing:1.4,marginBottom:7}}>Plano Anual</div>
+              <div style={{color:T.gold,fontSize:10,textTransform:"uppercase",letterSpacing:1.4,marginBottom:7}}>Anual</div>
               <div style={{display:"flex",alignItems:"flex-end",gap:5,marginBottom:4}}><span className="cm" style={{fontSize:44,fontWeight:600,color:T.goldLt,lineHeight:1}}>3.990</span><span style={{color:T.muted,fontSize:12,marginBottom:5}}>R$/ano</span></div>
-              <div style={{color:T.success,fontSize:10,fontWeight:600,marginBottom:2}}>✓ Dois meses por nossa conta — R$ 798 de economia</div>
-              <div style={{color:T.muted,fontSize:9,marginBottom:18}}>Equivalente a R$ 332,50 por mês</div>
-              <div style={{flex:1}}>{["Até 5 usuárias","14 módulos completos","Inteligência artificial","CRM e campanhas por WhatsApp","Suporte prioritário","Relatórios exclusivos"].map(f=><div key={f} style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><I.Check c={T.gold} s={11}/><span style={{color:T.text,fontSize:11}}>{f}</span></div>)}</div>
+              <div style={{color:T.success,fontSize:10,fontWeight:600,marginBottom:2}}>✓ 2 meses grátis — R$ 798 de economia</div>
+              <div style={{color:T.muted,fontSize:9,marginBottom:18}}>=  R$ 332,50/mês</div>
+              <div style={{flex:1}}>{["5 usuários","11 módulos","IA integrada","CRM & Marketing","Suporte prioritário","Relatórios exclusivos"].map(f=><div key={f} style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><I.Check c={T.gold} s={11}/><span style={{color:T.text,fontSize:11}}>{f}</span></div>)}</div>
               <button className="gb gl" onClick={()=>onCheckout("anual")} style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:9,padding:"11px",fontWeight:700,fontSize:13,marginTop:18,cursor:"pointer"}}>Assinar anualmente →</button>
             </div>
           </div>
         </div>
       </section>
-
-      {/* PROGRAMA DE AFILIADOS */}
-      <section id="afiliados" style={{padding:"66px clamp(16px,6vw,52px)",position:"relative",overflow:"hidden"}}>
-        <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,background:`radial-gradient(circle at 30% 20%,${T.gold}0C,transparent 60%)`,pointerEvents:"none"}}/>
-        <div style={{maxWidth:820,margin:"0 auto",position:"relative"}}>
-          <div style={{background:`linear-gradient(145deg,#FFFFFF,#FBF6E8)`,border:`1.5px solid ${T.gold}45`,borderRadius:20,padding:"clamp(28px,5vw,48px)",textAlign:"center",boxShadow:"0 12px 36px #7C5CBF14"}}>
-            <GTag2><I.Star c={T.gold} s={10}/> Programa de Indicação</GTag2>
-            <h2 className="cm" style={{fontSize:"clamp(24px,4.5vw,42px)",fontWeight:400,color:T.text,margin:"16px 0 10px",lineHeight:1.25}}>Seja uma <span style={{fontStyle:"italic",color:T.gold}}>Afiliada VPBeauty</span><br/>e ganhe 20% vitalícios de cada clínica que indicar</h2>
-            <p style={{color:T.mutedLt,fontSize:13,lineHeight:1.8,maxWidth:520,margin:"0 auto 28px"}}>Você conhece o universo da estética como ninguém. Transforme essa rede de contatos em uma fonte de renda recorrente — enquanto sua indicação permanecer assinante, sua comissão continua chegando, mês após mês.</p>
-            <div className="g2" style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:30,textAlign:"left"}}>
-              {[
-                ["Comissão vitalícia","Enquanto o cliente indicado permanecer assinante, você continua recebendo."],
-                ["Seu código exclusivo","Um link só seu para compartilhar e acompanhar cada indicação em tempo real."],
-                ["Pagamento via Pix","Direto na sua chave cadastrada, de forma simples e segura."],
-              ].map(([t,d])=>(
-                <div key={t}>
-                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}><I.Check c={T.gold} s={13}/><span style={{color:T.text,fontSize:12,fontWeight:600}}>{t}</span></div>
-                  <p style={{color:T.muted,fontSize:11,lineHeight:1.6,marginLeft:20}}>{d}</p>
-                </div>
-              ))}
-            </div>
-            <button className="gb gl" onClick={()=>setModalAfiliado(true)} style={{background:T.gold,color:"#FFFFFF",border:"none",borderRadius:10,padding:"13px 30px",fontWeight:700,fontSize:14,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:8}}>
-              Quero ser Afiliada <I.Arrow c="#FFFFFF" s={14}/>
-            </button>
-            <p style={{color:T.muted,fontSize:10,marginTop:12}}>Cadastro gratuito e leva menos de 5 minutos</p>
-          </div>
-        </div>
-      </section>
-
       {/* FAQ */}
-      <section id="faq" style={{padding:"60px clamp(16px,6vw,52px)",background:T.surface,borderTop:`1px solid ${T.border}`}}>
-        <div style={{maxWidth:640,margin:"0 auto"}}>
-          <div style={{textAlign:"center",marginBottom:36}}><GTag2>Perguntas frequentes</GTag2><h2 className="cm" style={{fontSize:"clamp(18px,4vw,34px)",fontWeight:400,color:T.text,margin:"12px 0"}}>Tudo o que você precisa saber</h2></div>
+      <section id="faq" style={{padding:"60px clamp(16px,6vw,52px)",borderTop:`1px solid ${T.border}`}}>
+        <div style={{maxWidth:600,margin:"0 auto"}}>
+          <div style={{textAlign:"center",marginBottom:36}}><GTag2>Dúvidas frequentes</GTag2><h2 className="cm" style={{fontSize:"clamp(18px,4vw,34px)",fontWeight:400,color:T.text,margin:"12px 0"}}>Perguntas e respostas</h2></div>
           {faq.map((item,i)=>(
             <div key={i} style={{borderBottom:`1px solid ${T.border}`}}>
               <button onClick={()=>setActiveQ(activeQ===i?null:i)} style={{width:"100%",background:"none",border:"none",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",gap:12,textAlign:"left",cursor:"pointer"}}>
                 <span style={{color:T.text,fontSize:12,fontWeight:500}}>{item.q}</span>
                 <div style={{flexShrink:0,transform:activeQ===i?"rotate(45deg)":"rotate(0)"}}><I.X c={T.gold} s={15}/></div>
               </button>
-              {activeQ===i&&<div className="fu" style={{paddingBottom:13}}><p style={{color:T.mutedLt,fontSize:11,lineHeight:1.75}}>{item.r}</p></div>}
+              {activeQ===i&&<div className="fu" style={{paddingBottom:13}}><p style={{color:T.mutedLt,fontSize:11,lineHeight:1.7}}>{item.r}</p></div>}
             </div>
           ))}
         </div>
       </section>
-
-      {/* CTA FINAL */}
-      <section style={{padding:"66px clamp(16px,6vw,52px)",textAlign:"center"}}>
-        <h2 className="cm" style={{fontSize:"clamp(24px,5vw,50px)",fontWeight:300,color:T.text,lineHeight:1.2,marginBottom:13}}>Comece hoje.<br/><span style={{fontStyle:"italic",fontWeight:600,color:T.gold}}>Sinta a diferença já na primeira semana.</span></h2>
+      {/* CTA */}
+      <section style={{padding:"66px clamp(16px,6vw,52px)",textAlign:"center",background:T.surface,borderTop:`1px solid ${T.border}`}}>
+        <h2 className="cm" style={{fontSize:"clamp(24px,5vw,50px)",fontWeight:300,color:T.text,lineHeight:1.2,marginBottom:13}}>Comece hoje.<br/><span style={{fontStyle:"italic",fontWeight:600,color:T.gold}}>Veja o retorno amanhã.</span></h2>
         <div className="hero-btns" style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap",marginTop:24}}>
           <button className="gb gl" onClick={()=>onCheckout("anual")} style={{background:T.gold,color:"#FFFFFF",border:"none",borderRadius:10,padding:"12px 30px",fontWeight:700,fontSize:14,cursor:"pointer"}}>Assinar — R$ 3.990/ano</button>
-          <button className="ob" onClick={onLogin} style={{background:"transparent",color:T.mutedLt,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 20px",fontWeight:500,fontSize:12,cursor:"pointer"}}>Já sou cliente</button>
+          <button className="ob" onClick={onLogin} style={{background:"transparent",color:T.mutedLt,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 20px",fontWeight:500,fontSize:12,cursor:"pointer"}}>Já tenho conta</button>
         </div>
-        <p style={{color:T.muted,fontSize:10,marginTop:12}}>Acesso imediato · Até 5 usuárias · Cancele quando desejar</p>
+        <p style={{color:T.muted,fontSize:10,marginTop:12}}>Acesso imediato · 5 usuários · Cancele quando quiser</p>
       </section>
-
-      {modalAfiliado&&<CadastroAfiliadoModal onClose={()=>setModalAfiliado(false)} onSuccess={(dados)=>{setModalAfiliado(false);setAfiliadoSucesso(dados);}}/>}
-
-      {afiliadoSucesso&&<div style={{position:"fixed",inset:0,background:"#4A3D6280",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}} onClick={e=>e.target===e.currentTarget&&setAfiliadoSucesso(null)}>
-        <div className="fu" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:32,maxWidth:420,textAlign:"center"}}>
-          <div style={{width:56,height:56,borderRadius:"50%",background:T.success+"18",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}><I.Check c={T.success} s={26}/></div>
-          <h3 className="cm" style={{fontSize:20,fontWeight:600,color:T.text,marginBottom:8}}>Bem-vinda ao Programa!</h3>
-          <p style={{color:T.mutedLt,fontSize:12,lineHeight:1.7,marginBottom:16}}>Seu cadastro foi concluído e o contrato assinado. Este é o seu código de afiliada:</p>
-          <div style={{background:T.gold+"14",border:`1.5px solid ${T.gold}45`,borderRadius:10,padding:"12px 16px",marginBottom:18}}>
-            <span className="cm" style={{fontSize:22,fontWeight:700,color:T.gold,letterSpacing:1}}>{afiliadoSucesso.codigo}</span>
-          </div>
-          <p style={{color:T.muted,fontSize:11,marginBottom:20}}>Faça login com seu e-mail e senha para acessar sua área de afiliada, acompanhar indicações e solicitar saques.</p>
-          <button className="gb" onClick={()=>{setAfiliadoSucesso(null);onLogin();}} style={{width:"100%",background:T.gold,color:"#FFFFFF",border:"none",borderRadius:9,padding:"12px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Entrar na minha área →</button>
-        </div>
-      </div>}
-
       <footer style={{borderTop:`1px solid ${T.border}`,padding:"20px clamp(16px,5vw,52px)"}}>
         <div style={{maxWidth:1000,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
           <div className="cm" style={{fontSize:16,fontWeight:600,color:T.text}}>VP<span style={{color:T.gold}}>Beauty</span></div>
-          <div style={{color:T.muted,fontSize:10}}>© 2026 VPBeauty · Um produto VirtualPlan · Todos os direitos reservados</div>
+          <div style={{color:T.muted,fontSize:10}}>© 2025 VPBeauty · Todos os direitos reservados</div>
           <div style={{display:"flex",gap:14}}>{["Privacidade","Termos","Suporte"].map(l=><span key={l} style={{color:T.muted,fontSize:10,cursor:"pointer"}}>{l}</span>)}</div>
         </div>
       </footer>
     </div>
   );
 }
-
 
 
 /* ─── SISTEMA PRINCIPAL ──────────────────────────────────────── */
@@ -5695,7 +4339,6 @@ function BannerRenovacao({user}) {
 function Sistema({user, onLogout}) {
   const [pag, setPag] = useState("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [atendimentoParaAbrir, setAtendimentoParaAbrir] = useState(null); // {atendimento, itens} | null
   const { data, loading, update, insert, remove } = useData(user.id);
   const isSupervisor = user.role !== "profissional";
 
@@ -5769,8 +4412,8 @@ function Sistema({user, onLogout}) {
   const render = () => {
     switch(pag) {
       case "dashboard":    return <Dashboard data={dataFiltrada} user={user}/>;
-      case "agendamentos": return <Agendamentos {...p} onRealizar={(dados)=>{setAtendimentoParaAbrir(dados);setPag("atendimentos");}}/>;
-      case "atendimentos": return <Atendimentos {...p} user={user} abrirDados={atendimentoParaAbrir} onAbriu={()=>setAtendimentoParaAbrir(null)}/>;
+      case "agendamentos": return <Agendamentos {...p}/>;
+      case "atendimentos": return <Atendimentos {...p}/>;
       case "pacientes":    return <Pacientes {...p} dadosCompletos={data} user={user}/>;
       case "comissoes":    return <Comissoes data={dataFiltrada} update={update} user={user}/>;
       case "fornecedores": return <Fornecedores {...p}/>;
@@ -5909,12 +4552,7 @@ function PainelAdmin({user, onLogout}) {
   const [drillDown,setDrillDown] = useState(null); // qual KPI está aberto em detalhe
   const [bloqueioModal,setBloqueioModal] = useState(null);
   const [motivoBloqueio,setMotivoBloqueio] = useState("");
-  const [abaAtiva,setAbaAtiva] = useState("principal"); // 'principal' | 'asaas' | 'afiliados'
-  const [afiliados,setAfiliados] = useState([]);
-  const [indicacoesAfiliados,setIndicacoesAfiliados] = useState([]);
-  const [configAfiliados,setConfigAfiliados] = useState({afiliado_percentual_padrao:20, afiliado_valor_minimo_saque:200, afiliado_meses_inatividade:6});
-  const [saquesAfiliados,setSaquesAfiliados] = useState([]);
-  const [msgAfiliados,setMsgAfiliados] = useState("");
+  const [abaAsaas,setAbaAsaas] = useState(false);
   const [pagModal,setPagModal] = useState(null);
   const [formPag,setFormPag] = useState({clinica_id:"",referencia:"",valor:0,vencimento:today()});
   const [msgConfig,setMsgConfig] = useState("");
@@ -5938,35 +4576,18 @@ function PainelAdmin({user, onLogout}) {
         {id:3,clinica_id:"demo-c3",referencia:"Abril/2025",valor:332.5,vencimento:"2025-04-05",status:"atrasado",origem:"manual",conciliado:false},
       ]);
       setConfig({asaas_api_key:"", asaas_ambiente:"sandbox"});
-      setAfiliados([
-        {id:"demo-af1",nome_completo:"Juliana Prado",cpf:"111.222.333-44",email:"juliana@email.com",codigo_afiliado:"JULIANA4821",status:"ativo",ultima_indicacao_em:"2026-06-01",created_at:"2026-01-10"},
-      ]);
-      setIndicacoesAfiliados([
-        {id:1,afiliado_id:"demo-af1",clinica_nome:"Studio Bella Vitta",valor_assinatura:399,comissao_valor:79.8,status:"pendente",referencia:"Junho/2026",created_at:"2026-06-05"},
-        {id:2,afiliado_id:"demo-af1",clinica_nome:"Espaço Renovare",valor_assinatura:3990,comissao_valor:798,status:"paga",referencia:"Maio/2026",created_at:"2026-05-12"},
-      ]);
-      setSaquesAfiliados([
-        {id:1,afiliado_id:"demo-af1",valor:250,status:"solicitado",data_solicitacao:"2026-06-10"},
-      ]);
-      setConfigAfiliados({afiliado_percentual_padrao:20, afiliado_valor_minimo_saque:200, afiliado_meses_inatividade:6});
       setLoading(false);
       return;
     }
     try {
-      const [c, p, cfg, afs, saqs, inds] = await Promise.all([
+      const [c, p, cfg] = await Promise.all([
         sb.get("clinicas","order=created_at.desc"),
         sb.get("pagamentos_assinatura","order=vencimento.desc"),
         sb.get("config_sistema",""),
-        sb.get("afiliados","order=created_at.desc"),
-        sb.get("afiliado_saques","order=data_solicitacao.desc"),
-        sb.get("afiliado_indicacoes","order=created_at.desc"),
       ]);
       setClinicas(c||[]);
       setPagamentos(p||[]);
-      if(cfg?.[0]){ setConfig(cfg[0]); setConfigAfiliados(cfg[0]); }
-      setAfiliados(afs||[]);
-      setSaquesAfiliados(saqs||[]);
-      setIndicacoesAfiliados(inds||[]);
+      if(cfg?.[0]) setConfig(cfg[0]);
     } catch(e){ console.error(e); }
     setLoading(false);
   };
@@ -6051,43 +4672,6 @@ function PainelAdmin({user, onLogout}) {
     if(!window.confirm(`Desbloquear "${clinica.nome}"? O acesso ao sistema volta imediatamente.`)) return;
     if(DEMO_MODE){ setClinicas(cs=>cs.map(c=>c.id===clinica.id?{...c,bloqueada:false,motivo_bloqueio:null}:c)); return; }
     await sb.patch("clinicas", clinica.id, {bloqueada:false, motivo_bloqueio:null});
-    carregar();
-  };
-
-  /* ── Gestão do Programa de Afiliados ── */
-  const salvarConfigAfiliados = async () => {
-    setMsgAfiliados("");
-    if(DEMO_MODE){ setMsgAfiliados("✓ Configuração salva (modo demo)."); return; }
-    try {
-      await sb.patch("config_sistema", "true", {
-        afiliado_percentual_padrao: Number(configAfiliados.afiliado_percentual_padrao),
-        afiliado_valor_minimo_saque: Number(configAfiliados.afiliado_valor_minimo_saque),
-        afiliado_meses_inatividade: Number(configAfiliados.afiliado_meses_inatividade),
-      });
-      setMsgAfiliados("✓ Regras do programa atualizadas!");
-    } catch(e){ setMsgAfiliados("Erro ao salvar."); }
-  };
-
-  const descredenciarAfiliado = async (afiliado) => {
-    const motivo = window.prompt(`Motivo do descredenciamento de ${afiliado.nome_completo}:`, "Sem novas indicações no período mínimo");
-    if(motivo===null) return;
-    if(DEMO_MODE){ setAfiliados(a=>a.map(x=>x.id===afiliado.id?{...x,status:"descredenciado",motivo_descredenciamento:motivo}:x)); return; }
-    await sb.patch("afiliados", afiliado.id, {status:"descredenciado", motivo_descredenciamento:motivo});
-    carregar();
-  };
-  const reativarAfiliado = async (afiliado) => {
-    if(DEMO_MODE){ setAfiliados(a=>a.map(x=>x.id===afiliado.id?{...x,status:"ativo",motivo_descredenciamento:null}:x)); return; }
-    await sb.patch("afiliados", afiliado.id, {status:"ativo", motivo_descredenciamento:null});
-    carregar();
-  };
-  const marcarSaquePago = async (saque) => {
-    if(DEMO_MODE){ setSaquesAfiliados(s=>s.map(x=>x.id===saque.id?{...x,status:"pago",data_pagamento:today()}:x)); return; }
-    await sb.patch("afiliado_saques", saque.id, {status:"pago", data_pagamento:new Date().toISOString()});
-    carregar();
-  };
-  const marcarComissaoPaga = async (indicacao) => {
-    if(DEMO_MODE){ setIndicacoesAfiliados(l=>l.map(x=>x.id===indicacao.id?{...x,status:"paga"}:x)); return; }
-    await sb.patch("afiliado_indicacoes", indicacao.id, {status:"paga"});
     carregar();
   };
 
@@ -6191,13 +4775,7 @@ function PainelAdmin({user, onLogout}) {
           </div>
         </div>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>setAbaAtiva("principal")} style={{background:abaAtiva==="principal"?C.accentSoft:C.card,border:`1px solid ${abaAtiva==="principal"?C.accent:C.border}`,borderRadius:8,padding:"7px 14px",color:abaAtiva==="principal"?C.accent:C.muted,fontSize:12,cursor:"pointer"}}>
-            Clientes
-          </button>
-          <button onClick={()=>setAbaAtiva("afiliados")} style={{background:abaAtiva==="afiliados"?C.accentSoft:C.card,border:`1px solid ${abaAtiva==="afiliados"?C.accent:C.border}`,borderRadius:8,padding:"7px 14px",color:abaAtiva==="afiliados"?C.accent:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-            <I.Star s={13}/> Afiliados
-          </button>
-          <button onClick={()=>setAbaAtiva("asaas")} style={{background:abaAtiva==="asaas"?C.accentSoft:C.card,border:`1px solid ${abaAtiva==="asaas"?C.accent:C.border}`,borderRadius:8,padding:"7px 14px",color:abaAtiva==="asaas"?C.accent:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <button onClick={()=>setAbaAsaas(a=>!a)} style={{background:abaAsaas?C.accentSoft:C.card,border:`1px solid ${abaAsaas?C.accent:C.border}`,borderRadius:8,padding:"7px 14px",color:abaAsaas?C.accent:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
             <I.Bank s={13}/> Conciliação Asaas
           </button>
           <button onClick={onLogout} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 14px",color:C.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
@@ -6208,7 +4786,7 @@ function PainelAdmin({user, onLogout}) {
 
       <div style={{padding:"clamp(16px,3vw,28px)",maxWidth:1200,margin:"0 auto"}}>
 
-        {abaAtiva==="principal" ? <>
+        {!abaAsaas ? <>
           {/* KPIs clicáveis */}
           <div className="stat-row" style={{display:"flex",gap:11,marginBottom:20,flexWrap:"wrap"}}>
             {kpis.map(k=>(
@@ -6309,78 +4887,7 @@ function PainelAdmin({user, onLogout}) {
             })}
             empty="Nenhuma clínica encontrada."
           />
-        </> : null}
-
-        {abaAtiva==="afiliados" && <>
-          {/* ── ABA AFILIADOS ── */}
-          <div className="stat-row" style={{display:"flex",gap:11,marginBottom:18,flexWrap:"wrap"}}>
-            <SC label="Afiliados Ativos" value={afiliados.filter(a=>a.status==="ativo").length} Icon={I.Star} color={C.gold}/>
-            <SC label="Clientes Indicados" value={indicacoesAfiliados.length} Icon={I.User} color={C.info}/>
-            <SC label="Comissões Pendentes" value={fmt(indicacoesAfiliados.filter(i=>i.status==="pendente").reduce((s,i)=>s+(Number(i.comissao_valor)||0),0))} Icon={I.Warn} color={C.warn}/>
-            <SC label="Saques Aguardando Pix" value={saquesAfiliados.filter(s=>s.status==="solicitado").length} Icon={I.Dollar} color={C.danger}/>
-          </div>
-
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:18,marginBottom:18}}>
-            <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:7}}><I.Star c={C.gold} s={16}/> Regras do Programa de Afiliados</h3>
-            <p style={{color:C.muted,fontSize:11,marginBottom:12}}>Estas regras se aplicam a todos os afiliados. Alterações valem a partir de agora — indicações já registradas mantêm o percentual da época.</p>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
-              <Inp label="Percentual de comissão (%)" type="number" value={configAfiliados.afiliado_percentual_padrao} onChange={e=>setConfigAfiliados(c=>({...c,afiliado_percentual_padrao:e.target.value}))}/>
-              <Inp label="Valor mínimo para saque (R$)" type="number" value={configAfiliados.afiliado_valor_minimo_saque} onChange={e=>setConfigAfiliados(c=>({...c,afiliado_valor_minimo_saque:e.target.value}))}/>
-              <Inp label="Meses sem indicação p/ descredenciar" type="number" value={configAfiliados.afiliado_meses_inatividade} onChange={e=>setConfigAfiliados(c=>({...c,afiliado_meses_inatividade:e.target.value}))}/>
-            </div>
-            {msgAfiliados&&<div style={{background:C.success+"14",border:`1px solid ${C.success}30`,borderRadius:8,padding:"8px 12px",marginBottom:10,color:C.success,fontSize:12}}>{msgAfiliados}</div>}
-            <Btn onClick={salvarConfigAfiliados}><I.Check s={12}/> Salvar Regras</Btn>
-          </div>
-
-          <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:11}}>Afiliados Cadastrados</h3>
-          <ST cols={["Nome","CPF","Código","Última Indicação","Status","Ação"]}
-            rows={afiliados.map(a=>[
-              <span style={{fontWeight:600}}>{a.nome_completo}</span>,
-              <span style={{fontSize:11,color:C.muted}}>{a.cpf}</span>,
-              <span className="cm" style={{fontWeight:700,color:C.gold,fontSize:12}}>{a.codigo_afiliado}</span>,
-              <span style={{fontSize:11}}>{a.ultima_indicacao_em?fmtDate(a.ultima_indicacao_em):"Nenhuma ainda"}</span>,
-              <div><Badge text={a.status==="ativo"?"Ativo":"Descredenciado"} color={a.status==="ativo"?C.success:C.danger}/>{a.motivo_descredenciamento&&<div style={{color:C.muted,fontSize:9,marginTop:3}}>{a.motivo_descredenciamento}</div>}</div>,
-              a.status==="ativo"
-                ? <Btn v="d" onClick={()=>descredenciarAfiliado(a)} style={{fontSize:10,padding:"3px 9px"}}>Descredenciar</Btn>
-                : <Btn v="ok" onClick={()=>reativarAfiliado(a)} style={{fontSize:10,padding:"3px 9px"}}>Reativar</Btn>,
-            ])}
-            empty="Nenhum afiliado cadastrado ainda."
-          />
-
-          <h3 style={{color:C.text,fontSize:14,fontWeight:700,margin:"22px 0 11px"}}>Clientes Indicados por Afiliados</h3>
-          <ST cols={["Afiliado","Clínica Indicada","Referência","Valor Assinatura","Comissão","Status","Ação"]}
-            rows={indicacoesAfiliados.map(ind=>{
-              const af = afiliados.find(a=>a.id===ind.afiliado_id);
-              return [
-                <span style={{fontWeight:600}}>{af?.nome_completo||"—"}</span>,
-                <span style={{fontSize:11}}>{ind.clinica_nome}</span>,
-                <span style={{fontSize:11}}>{ind.referencia}</span>,
-                <span style={{fontSize:11}}>{fmt(ind.valor_assinatura)}</span>,
-                <span style={{color:C.accent,fontWeight:700}}>{fmt(ind.comissao_valor)}</span>,
-                <Badge text={ind.status==="paga"?"Confirmada":"Pendente"} color={ind.status==="paga"?C.success:C.warn}/>,
-                ind.status==="pendente"?<Btn v="ok" onClick={()=>marcarComissaoPaga(ind)} style={{fontSize:10,padding:"3px 9px"}}>Confirmar</Btn>:<span style={{fontSize:10,color:C.muted}}>—</span>,
-              ];
-            })}
-            empty="Nenhuma indicação registrada ainda."
-          />
-
-          <h3 style={{color:C.text,fontSize:14,fontWeight:700,margin:"22px 0 11px"}}>Solicitações de Saque</h3>
-          <ST cols={["Afiliado","Valor","Data da Solicitação","Status","Ação"]}
-            rows={saquesAfiliados.map(s=>{
-              const af = afiliados.find(a=>a.id===s.afiliado_id);
-              return [
-                <span style={{fontWeight:600}}>{af?.nome_completo||"—"}</span>,
-                <span style={{color:C.accent,fontWeight:700}}>{fmt(s.valor)}</span>,
-                <span style={{fontSize:11}}>{fmtDate(s.data_solicitacao)}</span>,
-                <Badge text={s.status==="pago"?"Pago":s.status==="rejeitado"?"Rejeitado":"Aguardando Pix"} color={s.status==="pago"?C.success:s.status==="rejeitado"?C.danger:C.warn}/>,
-                s.status==="solicitado"?<Btn v="ok" onClick={()=>marcarSaquePago(s)} style={{fontSize:10,padding:"3px 9px"}}>Marcar Pago</Btn>:<span style={{fontSize:10,color:C.muted}}>{s.data_pagamento?fmtDate(s.data_pagamento):"—"}</span>,
-              ];
-            })}
-            empty="Nenhuma solicitação de saque ainda."
-          />
-        </>}
-
-        {abaAtiva==="asaas" && <>
+        </> : <>
           {/* ── ABA CONCILIAÇÃO ASAAS ── */}
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:18,marginBottom:18}}>
             <h3 style={{color:C.text,fontSize:14,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:7}}><I.Bank c={C.accent} s={16}/> Configuração Asaas</h3>
@@ -6486,26 +4993,7 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [checkout, setCheckout] = useState(null);
 
-  /* Captura o código de indicação da URL (?ref=CODIGO) e mantém durante a sessão */
-  const [refAfiliado] = useState(()=>{
-    if (typeof window === "undefined") return "";
-    const params = new URLSearchParams(window.location.search);
-    return params.get("ref") || "";
-  });
-
-  /* Detecta retorno do e-mail de recuperação de senha (#access_token=...&type=recovery) */
-  const [recoveryToken, setRecoveryToken] = useState(()=>{
-    if (typeof window === "undefined") return null;
-    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    return hash.get("type") === "recovery" ? hash.get("access_token") : null;
-  });
-  const limparRecovery = () => {
-    setRecoveryToken(null);
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    setShowLogin(true);
-  };
-
-  const handleLogin = u => { setUser(u); setShowLogin(false); setTela(u.isSuperAdmin ? "painel_admin" : u.isAfiliado ? "area_afiliado" : "sistema"); };
+  const handleLogin = u => { setUser(u); setShowLogin(false); setTela(u.isSuperAdmin ? "painel_admin" : "sistema"); };
   const handleLogout = () => { setUser(null); setTela("landing"); };
   const handleCheckoutSuccess = u => { setUser(u); setCheckout(null); setTela("sistema"); };
 
@@ -6515,10 +5003,8 @@ export default function App() {
       {tela==="landing" && <Landing onLogin={()=>setShowLogin(true)} onCheckout={p=>setCheckout(p)}/>}
       {tela==="sistema" && user && <Sistema user={user} onLogout={handleLogout}/>}
       {tela==="painel_admin" && user && <PainelAdmin user={user} onLogout={handleLogout}/>}
-      {tela==="area_afiliado" && user && <AreaAfiliado user={user} onLogout={handleLogout}/>}
       {showLogin && <LoginModal onClose={()=>setShowLogin(false)} onLogin={handleLogin} onGoSignup={()=>{setShowLogin(false);setCheckout("anual");}}/>}
-      {checkout && <CheckoutModal plan={checkout} onClose={()=>setCheckout(null)} onSuccess={handleCheckoutSuccess} codigoAfiliado={refAfiliado}/>}
-      {recoveryToken && <ResetPasswordModal accessToken={recoveryToken} onDone={limparRecovery}/>}
+      {checkout && <CheckoutModal plan={checkout} onClose={()=>setCheckout(null)} onSuccess={handleCheckoutSuccess}/>}
     </>
   );
 }
