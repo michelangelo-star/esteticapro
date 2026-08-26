@@ -310,6 +310,11 @@ const mkDemo = () => ({
   segmentos_empresa:[{id:1,nome:"Estética e Beleza",ativo:true},{id:2,nome:"Odontologia",ativo:true}],
   logs_financeiros:[],
   paciente_patologias:[],
+  lista_espera:[],
+  equipamentos:[],
+  equipamento_manutencoes:[],
+  atendimento_fotos:[],
+  produto_lotes:[],
   salas:[
     {id:1,nome:"Sala 1 - Estética Facial",descricao:"18m², maca elétrica, espelho iluminado",valor_aluguel:1500,status:"alugada",locatario_nome:"Juliana Freitas",locatario_cpf:"123.456.789-00",locatario_telefone:"(11)98888-4444",contrato_inicio:"2025-01-10",contrato_fim:"2025-12-31",contrato_arquivo_nome:"",contrato_arquivo_base64:""},
     {id:2,nome:"Sala 2 - Estética Corporal",descricao:"22m², maca de massagem, ducha",valor_aluguel:1800,status:"disponivel"},
@@ -955,6 +960,7 @@ function useData(clinicaId) {
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
         adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
         empresa, segmentos_empresa, logs_financeiros, paciente_patologias,
+        lista_espera, equipamentos, equipamento_manutencoes, atendimento_fotos, produto_lotes,
       ] = await Promise.all([
         sb.get("profissionais",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("fornecedores",        `clinica_id=eq.${cid}&ativo=eq.true`),
@@ -992,6 +998,11 @@ function useData(clinicaId) {
         sb.get("segmentos_empresa",   `clinica_id=eq.${cid}&order=nome.asc`),
         sb.get("logs_financeiros",    `clinica_id=eq.${cid}&order=created_at.desc&limit=300`),
         sb.get("paciente_patologias", `clinica_id=eq.${cid}&order=data_informada.desc`),
+        sb.get("lista_espera",        `clinica_id=eq.${cid}&order=created_at.desc`),
+        sb.get("equipamentos",        `clinica_id=eq.${cid}&order=nome.asc`),
+        sb.get("equipamento_manutencoes",`clinica_id=eq.${cid}&order=data.desc`),
+        sb.get("atendimento_fotos",   `clinica_id=eq.${cid}&order=created_at.desc`),
+        sb.get("produto_lotes",       `clinica_id=eq.${cid}&order=validade.asc`),
       ]);
 
       setData({
@@ -1005,6 +1016,7 @@ function useData(clinicaId) {
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
         adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
         empresa: empresa?.[0]||null, segmentos_empresa, logs_financeiros, paciente_patologias,
+        lista_espera, equipamentos, equipamento_manutencoes, atendimento_fotos, produto_lotes,
       });
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
@@ -1856,6 +1868,29 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
   const [formBloqueio,setFormBloqueio]=useState({profissional_id:"",data_inicio:today(),data_fim:today(),motivo:""});
   const [erroSalvar,setErroSalvar]=useState("");
   const [salvando,setSalvando]=useState(false);
+  const [formEspera,setFormEspera]=useState({paciente_id:"",paciente:"",procedimento_id:"",servico:"",observacoes:""});
+
+  const listaEsperaAguardando = useMemo(()=>(data.lista_espera||[]).filter(e=>e.status==="aguardando").sort((a,b)=>(a.created_at||"").localeCompare(b.created_at||"")),[data.lista_espera]);
+
+  const addListaEspera = async () => {
+    if(!formEspera.paciente_id) return;
+    await insert("lista_espera",{
+      paciente_id:parseInt(formEspera.paciente_id), paciente:formEspera.paciente,
+      procedimento_id:formEspera.procedimento_id?parseInt(formEspera.procedimento_id):null,
+      servico:formEspera.servico, observacoes:formEspera.observacoes, status:"aguardando",
+    });
+    setFormEspera({paciente_id:"",paciente:"",procedimento_id:"",servico:"",observacoes:""});
+  };
+
+  /* Pré-preenche o formulário de novo agendamento com quem está esperando — pensado
+     pra usar assim que surge uma vaga (ex: logo depois de cancelar um agendamento). */
+  const usarListaEspera = (item) => {
+    setErroSalvar("");
+    setForm({paciente_id:String(item.paciente_id||""), paciente:item.paciente||"", procedimento_id:item.procedimento_id?String(item.procedimento_id):"", servico:item.servico||"", profissional_id:"", data:diaSelecionado, hora:"09:00", duracao_minutos:60, status:"aguardando", observacoes:item.observacoes||""});
+    update("lista_espera", item.id, {status:"atendido"});
+    setVisao("dia");
+    setModal(true);
+  };
 
   const lista=useMemo(()=>{
     let l=[...data.agendamentos];
@@ -2023,7 +2058,7 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
     <div>
       <PH title="Agendamentos" sub={`${lista.length} registros no total`}>
         <div style={{display:"flex",gap:5,marginRight:6,flexWrap:"wrap"}}>
-          {[["mes","Mês"],["semana","Semana"],["dia","Dia"],["lista","Lista"]].map(([id,label])=>(
+          {[["mes","Mês"],["semana","Semana"],["dia","Dia"],["lista","Lista"],["espera",`Lista de Espera${(data.lista_espera||[]).filter(e=>e.status==="aguardando").length>0?` (${(data.lista_espera||[]).filter(e=>e.status==="aguardando").length})`:""}`]].map(([id,label])=>(
             <button key={id} onClick={()=>setVisao(id)} style={{padding:"7px 13px",borderRadius:8,border:`1px solid ${visao===id?C.accent:C.border}`,background:visao===id?C.accentSoft:"transparent",color:visao===id?C.accent:C.muted,fontSize:12,fontWeight:visao===id?700:400,cursor:"pointer"}}>{label}</button>
           ))}
         </div>
@@ -2201,6 +2236,33 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
               {ag.status!=="cancelado"&&ag.status!=="realizado"&&<Btn v="d" onClick={()=>cancelar(ag.id)} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>}
             </div>
           ];})}
+        />
+      </>}
+
+      {visao==="espera"&&<>
+        <p style={{color:C.muted,fontSize:11,marginBottom:13}}>Clientes aguardando um encaixe. Se alguém desistir de um horário, clique em "Usar" pra já abrir o agendamento pré-preenchido com esse cliente.</p>
+        <div style={{background:C.surface,borderRadius:10,padding:13,marginBottom:16,border:`1px solid ${C.border}`}}>
+          <div style={{color:C.text,fontSize:12,fontWeight:700,marginBottom:9}}>Adicionar à lista de espera</div>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 2fr auto",gap:8,alignItems:"end"}}>
+            <PacienteBusca pacientes={data.pacientes} value={formEspera.paciente_id} insert={insert}
+              onChange={(id,nome)=>setFormEspera(f=>({...f,paciente_id:id,paciente:nome}))}/>
+            <Sel label="Procedimento desejado" value={formEspera.procedimento_id} onChange={e=>{const proc=data.procedimentos.find(p=>p.id===parseInt(e.target.value));setFormEspera(f=>({...f,procedimento_id:e.target.value,servico:proc?.nome||""}));}} options={[{value:"",label:"Selecione..."}, ...data.procedimentos.filter(p=>p.ativo).map(p=>({value:p.id,label:p.nome}))]}/>
+            <Inp label="Observações" value={formEspera.observacoes} onChange={e=>setFormEspera(f=>({...f,observacoes:e.target.value}))} placeholder="Ex: prefere de manhã..."/>
+            <Btn onClick={addListaEspera} disabled={!formEspera.paciente_id}><I.Plus s={12}/></Btn>
+          </div>
+        </div>
+        <ST cols={["Paciente","Procedimento","Observações","Entrou em","Ação"]}
+          rows={listaEsperaAguardando.map(item=>[
+            <span style={{fontWeight:600}}>{item.paciente}</span>,
+            <span style={{color:C.muted,fontSize:11}}>{item.servico||"—"}</span>,
+            <span style={{color:C.muted,fontSize:11}}>{item.observacoes||"—"}</span>,
+            <span style={{fontSize:11}}>{item.created_at?fmtDate(item.created_at.slice(0,10)):"—"}</span>,
+            <div style={{display:"flex",gap:4}}>
+              <Btn v="ok" onClick={()=>usarListaEspera(item)} style={{padding:"3px 9px",fontSize:10}}>Usar pra agendar</Btn>
+              <Btn v="d" onClick={()=>update("lista_espera",item.id,{status:"cancelado"})} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>
+            </div>
+          ])}
+          empty="Ninguém na lista de espera."
         />
       </>}
 
