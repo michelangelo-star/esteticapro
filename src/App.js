@@ -1420,39 +1420,10 @@ function CheckoutModal({plan,onClose,onSuccess,desconto=0,codigoAfiliado=""}) {
 
 /* ─── DASHBOARD ──────────────────────────────────────────────── */
 function Dashboard({data, user}) {
-  const [diag, setDiag] = useState(null);
-  const [diagLoading, setDiagLoading] = useState(false);
-
-  const testarConexao = async () => {
-    setDiagLoading(true);
-    const resultado = { url: SUPABASE_URL, demo: DEMO_MODE, userId: user?.id, testes: [] };
-    try {
-      // Teste 1: Autenticação
-      const r1 = await fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: getHeaders() });
-      resultado.testes.push({ nome: "Autenticação (token)", ok: r1.ok, status: r1.status, msg: r1.ok ? "Token válido ✓" : `Falhou (${r1.status}) — refaça o login` });
-
-      // Teste 2: Leitura de clinicas
-      const r2 = await fetch(`${SUPABASE_URL}/rest/v1/clinicas?limit=5`, { headers: getHeaders() });
-      const d2 = await r2.json();
-      resultado.testes.push({ nome: "Leitura — tabela clinicas", ok: r2.ok && !d2.message, status: r2.status, msg: r2.ok && !d2.message ? `OK — ${d2.length} registro(s)` : (d2.message || d2.hint || `Erro ${r2.status}`) });
-
-      // Teste 3: Leitura de pacientes
-      const r3 = await fetch(`${SUPABASE_URL}/rest/v1/pacientes?limit=5`, { headers: getHeaders() });
-      const d3 = await r3.json();
-      resultado.testes.push({ nome: "Leitura — tabela pacientes", ok: r3.ok && !d3.message, status: r3.status, msg: r3.ok && !d3.message ? `OK — ${d3.length} registro(s)` : (d3.message || d3.hint || `Erro ${r3.status} — verifique RLS`) });
-
-      // Teste 4: Inserção de teste
-      const r4 = await fetch(`${SUPABASE_URL}/rest/v1/clinicas?email=eq.teste_diagnostico@sistema.com`, { headers: getHeaders() });
-      resultado.testes.push({ nome: "Permissão de escrita", ok: r4.ok, status: r4.status, msg: r4.ok ? "Permissão OK ✓" : `Sem permissão de escrita (${r4.status})` });
-
-    } catch (e) {
-      resultado.testes.push({ nome: "Conexão de rede", ok: false, status: 0, msg: `Erro: ${e.message}` });
-    }
-    setDiag(resultado);
-    setDiagLoading(false);
-  };
+  const isSupervisor = !user || user.role !== "profissional";
   const [filt,setFilt]=useState({de:"",ate:"",profissional:""});
   const ff=(k,v)=>setFilt(p=>({...p,[k]:v}));
+  const [vendasView,setVendasView]=useState("cliente"); // 'cliente' | 'item' | 'profissional'
 
   const atFiltrados = useMemo(()=>{
     let list=[...data.atendimentos];
@@ -1477,6 +1448,48 @@ function Dashboard({data, user}) {
     return s+saldo;
   },0);
 
+  // Últimas vendas — agrupável por cliente, produto/procedimento ou profissional.
+  // Sempre parte de atFiltrados (já escopado por papel/período) para não vazar
+  // atendimentos de outros profissionais mesmo indiretamente via itens.
+  const itensDasVendas = useMemo(()=>{
+    const idsAt = new Set(atFiltrados.map(a=>a.id));
+    return (data.atendimento_itens||[]).filter(i=>idsAt.has(i.atendimento_id));
+  },[data.atendimento_itens,atFiltrados]);
+
+  const vendasPorCliente = useMemo(()=>{
+    const porPaciente={};
+    atFiltrados.forEach(a=>{
+      const chave=a.paciente_id||a.paciente;
+      if(!porPaciente[chave]) porPaciente[chave]={nome:a.paciente,valor:0,visitas:0};
+      porPaciente[chave].valor+=Number(a.valor_final||a.valor)||0;
+      porPaciente[chave].visitas+=1;
+    });
+    return Object.values(porPaciente).sort((a,b)=>b.valor-a.valor);
+  },[atFiltrados]);
+
+  const vendasPorItem = useMemo(()=>{
+    const porItem={};
+    itensDasVendas.forEach(i=>{
+      const chave=i.descricao||"—";
+      if(!porItem[chave]) porItem[chave]={nome:chave,tipo:i.tipo,valor:0,qtd:0};
+      porItem[chave].valor+=Number(i.valor_total)||0;
+      porItem[chave].qtd+=Number(i.quantidade)||0;
+    });
+    return Object.values(porItem).sort((a,b)=>b.valor-a.valor);
+  },[itensDasVendas]);
+
+  const vendasPorProfissional = useMemo(()=>{
+    const porProf={};
+    atFiltrados.forEach(a=>{
+      const prof=data.profissionais.find(p=>p.id===a.profissional_id);
+      const chave=a.profissional_id||"—";
+      if(!porProf[chave]) porProf[chave]={nome:prof?.nome||"—",valor:0,atendimentos:0};
+      porProf[chave].valor+=Number(a.valor_final||a.valor)||0;
+      porProf[chave].atendimentos+=1;
+    });
+    return Object.values(porProf).sort((a,b)=>b.valor-a.valor);
+  },[atFiltrados,data.profissionais]);
+
   return (
     <div>
       <div style={{marginBottom:12}}>
@@ -1490,46 +1503,6 @@ function Dashboard({data, user}) {
         <span style={{color:T.gold,fontSize:11,fontWeight:600}}>Modo Demonstração — dados simulados. Configure SUPABASE_URL e SUPABASE_KEY no topo do App.js para usar dados reais.</span>
       </div>}
 
-      {/* Painel de diagnóstico — aparece apenas no modo real */}
-      {!DEMO_MODE&&<div style={{marginBottom:14}}>
-        {!diag&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
-          <span style={{color:C.muted,fontSize:12}}>Clique em "Testar Conexão" se os dados não estiverem aparecendo</span>
-          <Btn v="i" onClick={testarConexao} disabled={diagLoading} style={{whiteSpace:"nowrap"}}>
-            {diagLoading?<><Spin s={12} c={C.info}/>Testando...</>:<><I.Refresh s={12}/> Testar Conexão</>}
-          </Btn>
-        </div>}
-        {diag&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",marginBottom:0}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <span style={{color:C.text,fontSize:12,fontWeight:700}}>Diagnóstico de Conexão</span>
-            <div style={{display:"flex",gap:7}}>
-              <Btn v="g" onClick={testarConexao} style={{fontSize:10,padding:"3px 9px"}}><I.Refresh s={11}/> Retestar</Btn>
-              <Btn v="g" onClick={()=>setDiag(null)} style={{fontSize:10,padding:"3px 9px"}}><I.X s={11}/> Fechar</Btn>
-            </div>
-          </div>
-          <div style={{marginBottom:8,fontSize:11,color:C.muted}}>
-            URL: <code style={{color:C.text,fontSize:10}}>{diag.url}</code> · ID: <code style={{color:C.text,fontSize:10}}>{diag.userId||"não definido"}</code>
-          </div>
-          {diag.testes.map((t,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:6,padding:"7px 10px",background:t.ok?C.success+"10":C.danger+"10",borderRadius:7,border:`1px solid ${t.ok?C.success:C.danger}25`}}>
-              <span style={{fontSize:14,flexShrink:0}}>{t.ok?"✅":"❌"}</span>
-              <div>
-                <div style={{color:C.text,fontSize:11,fontWeight:600}}>{t.nome}</div>
-                <div style={{color:t.ok?C.success:C.danger,fontSize:11}}>{t.msg}</div>
-              </div>
-            </div>
-          ))}
-          {diag.testes.some(t=>!t.ok)&&<div style={{marginTop:10,background:C.warn+"12",border:`1px solid ${C.warn}30`,borderRadius:8,padding:"9px 12px"}}>
-            <div style={{color:C.warn,fontSize:11,fontWeight:700,marginBottom:4}}>O que fazer para corrigir:</div>
-            <div style={{color:C.text,fontSize:11,lineHeight:1.7}}>
-              1. No Supabase → SQL Editor → execute o arquivo <strong>fix-rls-supabase.sql</strong><br/>
-              2. Verifique se SUPABASE_KEY é a chave <strong>anon/public</strong> (começa com eyJ...)<br/>
-              3. Faça logout e login novamente para renovar o token<br/>
-              4. Verifique se o e-mail do login está cadastrado em <strong>Authentication → Users</strong>
-            </div>
-          </div>}
-        </div>}
-      </div>}
-
       <FilterBar
         filters={[
           {key:"de",type:"date",label:"De"},
@@ -1540,10 +1513,10 @@ function Dashboard({data, user}) {
       />
 
       <div className="stat-row" style={{display:"flex",gap:9,marginBottom:13,flexWrap:"wrap"}}>
-        <SC label="Receita" value={fmt(rec)} Icon={I.Up} color={C.success} sub={`${atFiltrados.length} atend.`}/>
-        <SC label="Despesas" value={fmt(tf+tv)} Icon={I.Dollar} color={C.danger}/>
-        <SC label="Lucro" value={fmt(lucro)} Icon={I.Sparkle} color={C.accent} sub={`${rec>0?Math.round(lucro/rec*100):0}%`}/>
-        <SC label="Saldo Contas" value={fmt(saldoCaixa)} Icon={I.Bank} color={C.info}/>
+        <SC label={isSupervisor?"Receita":"Meus Atendimentos"} value={fmt(rec)} Icon={I.Up} color={C.success} sub={`${atFiltrados.length} atend.`}/>
+        {isSupervisor&&<SC label="Despesas" value={fmt(tf+tv)} Icon={I.Dollar} color={C.danger}/>}
+        {isSupervisor&&<SC label="Lucro" value={fmt(lucro)} Icon={I.Sparkle} color={C.accent} sub={`${rec>0?Math.round(lucro/rec*100):0}%`}/>}
+        {isSupervisor&&<SC label="Saldo Contas" value={fmt(saldoCaixa)} Icon={I.Bank} color={C.info}/>}
       </div>
 
       {baixo.length>0&&<div style={{background:C.warn+"14",border:`1px solid ${C.warn}35`,borderRadius:10,padding:"8px 12px",marginBottom:11,display:"flex",alignItems:"center",gap:8}}>
@@ -1572,6 +1545,26 @@ function Dashboard({data, user}) {
             </div>
           );})}
         </div>
+      </div>
+
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:14,marginTop:11}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:11}}>
+          <h3 style={{color:C.text,fontSize:11,fontWeight:700}}>Últimas Vendas</h3>
+          <div style={{display:"flex",gap:6}}>
+            {[["cliente","Cliente"],["item","Produto/Procedimento"],...(isSupervisor?[["profissional","Profissional"]]:[])].map(([id,label])=>(
+              <button key={id} onClick={()=>setVendasView(id)} style={{padding:"5px 11px",borderRadius:8,border:`1px solid ${vendasView===id?C.accent:C.border}`,background:vendasView===id?C.accentSoft:"transparent",color:vendasView===id?C.accent:C.muted,fontSize:11,fontWeight:vendasView===id?700:400,cursor:"pointer"}}>{label}</button>
+            ))}
+          </div>
+        </div>
+        {vendasView==="cliente"&&<ST cols={["Cliente","Visitas","Total"]}
+          rows={vendasPorCliente.slice(0,15).map(v=>[<span style={{fontWeight:600,fontSize:12}}>{v.nome||"—"}</span>,<span style={{fontSize:11}}>{v.visitas}</span>,<span style={{color:C.success,fontWeight:700}}>{fmt(v.valor)}</span>])}
+          empty="Nenhuma venda no período."/>}
+        {vendasView==="item"&&<ST cols={["Produto/Procedimento","Tipo","Qtd.","Total"]}
+          rows={vendasPorItem.slice(0,15).map(v=>[<span style={{fontWeight:600,fontSize:12}}>{v.nome}</span>,<Badge text={v.tipo==="produto"?"Produto":"Procedimento"} color={v.tipo==="produto"?C.info:C.accent}/>,<span style={{fontSize:11}}>{v.qtd}</span>,<span style={{color:C.success,fontWeight:700}}>{fmt(v.valor)}</span>])}
+          empty="Nenhuma venda no período."/>}
+        {vendasView==="profissional"&&isSupervisor&&<ST cols={["Profissional","Atendimentos","Total"]}
+          rows={vendasPorProfissional.slice(0,15).map(v=>[<span style={{fontWeight:600,fontSize:12}}>{v.nome}</span>,<span style={{fontSize:11}}>{v.atendimentos}</span>,<span style={{color:C.success,fontWeight:700}}>{fmt(v.valor)}</span>])}
+          empty="Nenhuma venda no período."/>}
       </div>
     </div>
   );
@@ -1707,10 +1700,11 @@ function Agendamentos({data,insert,update}) {
     for(let i=0;i<offsetInicio;i++) dias.push(null);
     for(let dia=1;dia<=ultimo.getDate();dia++){
       const iso = `${mesRef.ano}-${String(mesRef.mes+1).padStart(2,"0")}-${String(dia).padStart(2,"0")}`;
-      const ags = data.agendamentos.filter(a=>a.data===iso && (!filt.profissional||String(a.profissional_id)===filt.profissional) && a.status!=="cancelado");
+      const ags = data.agendamentos.filter(a=>a.data===iso && (!filt.profissional||String(a.profissional_id)===filt.profissional) && a.status!=="cancelado")
+        .map(a=>({...a, profNome: data.profissionais.find(p=>p.id===a.profissional_id)?.nome || "—"}));
       const bloqueios = (data.bloqueios_agenda||[]).filter(b=>(!filt.profissional||String(b.profissional_id)===filt.profissional)&&iso>=b.data_inicio&&iso<=b.data_fim)
         .map(b=>({...b, profNome: data.profissionais.find(p=>p.id===b.profissional_id)?.nome || "Profissional"}));
-      dias.push({iso, dia, qtd:ags.length, bloqueios});
+      dias.push({iso, dia, qtd:ags.length, ags, bloqueios});
     }
     return dias;
   },[mesRef,data.agendamentos,data.bloqueios_agenda,data.profissionais,filt.profissional]);
@@ -1767,10 +1761,18 @@ function Agendamentos({data,insert,update}) {
           {diasDoMes.map((d,i)=>d===null
             ? <div key={"vazio"+i}/>
             : <button key={d.iso} onClick={()=>{setDiaSelecionado(d.iso);setVisao("dia");}}
-                title={d.bloqueios.length>0 ? d.bloqueios.map(b=>`${b.profNome}${b.motivo?` — ${b.motivo}`:""}`).join("\n") : undefined}
-                style={{aspectRatio:"1",minHeight:64,background:d.bloqueios.length>0?C.danger+"0C":(d.iso===today()?C.accentSoft:C.card),border:`1.5px solid ${d.bloqueios.length>0?C.danger+"70":C.border}`,borderRadius:9,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:4,position:"relative"}}>
-                <span style={{color:d.iso===today()?C.accent:C.text,fontWeight:d.iso===today()?700:500,fontSize:12}}>{d.dia}</span>
-                {d.qtd>0&&<span style={{background:C.accent,color:"#FFFFFF",borderRadius:20,fontSize:9,fontWeight:700,padding:"1px 6px"}}>{d.qtd}</span>}
+                title={d.bloqueios.length>0
+                  ? d.bloqueios.map(b=>`${b.profNome}${b.motivo?` — ${b.motivo}`:""}`).join("\n")
+                  : (d.ags.length>0 ? d.ags.map(a=>`${a.hora} — ${a.paciente} (${a.profNome}) · ${a.servico||"—"}`).join("\n") : undefined)}
+                style={{aspectRatio:"1",minHeight:76,background:d.bloqueios.length>0?C.danger+"0C":(d.iso===today()?C.accentSoft:C.card),border:`1.5px solid ${d.bloqueios.length>0?C.danger+"70":C.border}`,borderRadius:9,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",padding:4,position:"relative",overflow:"hidden"}}>
+                <span style={{color:d.iso===today()?C.accent:C.text,fontWeight:d.iso===today()?700:500,fontSize:12,marginBottom:2}}>{d.dia}</span>
+                {d.ags.slice(0,2).map(a=>(
+                  <div key={a.id} style={{width:"100%",background:C.accentSoft,borderRadius:4,padding:"1px 3px",marginBottom:2,fontSize:8,lineHeight:1.2,textAlign:"left",overflow:"hidden"}}>
+                    <div style={{color:C.text,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{a.paciente}</div>
+                    <div style={{color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{a.profNome.split(" ")[0]}</div>
+                  </div>
+                ))}
+                {d.ags.length>2&&<span style={{color:C.muted,fontSize:8}}>+{d.ags.length-2} mais</span>}
                 {d.bloqueios.length>0&&<>
                   <div style={{position:"absolute",top:3,right:3,background:C.danger,borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
                     <I.Lock c="#FFFFFF" s={11}/>
@@ -1784,7 +1786,7 @@ function Agendamentos({data,insert,update}) {
               </button>
           )}
         </div>
-        <p style={{color:C.muted,fontSize:10,marginTop:8,textAlign:"center"}}>Passe o mouse sobre um dia bloqueado para ver profissional e motivo.</p>
+        <p style={{color:C.muted,fontSize:10,marginTop:8,textAlign:"center"}}>Passe o mouse sobre um dia para ver todos os horários, profissionais e procedimentos.</p>
       </>}
 
       {/* ── VISÃO SEMANA ── */}
@@ -1806,9 +1808,10 @@ function Agendamentos({data,insert,update}) {
                 </div>
               }
               {dia.ags.slice(0,3).map(a=>{const p=data.profissionais.find(pr=>pr.id===a.profissional_id);return(
-                <div key={a.id} style={{background:(p?.cor||C.accent)+"18",borderLeft:`2px solid ${p?.cor||C.accent}`,borderRadius:4,padding:"3px 5px",marginBottom:3,fontSize:9}}>
+                <div key={a.id} title={`${a.hora} — ${a.paciente} (${p?.nome||"—"}) · ${a.servico||"—"}`} style={{background:(p?.cor||C.accent)+"18",borderLeft:`2px solid ${p?.cor||C.accent}`,borderRadius:4,padding:"3px 5px",marginBottom:3,fontSize:9}}>
                   <div style={{color:C.text,fontWeight:600}}>{a.hora}</div>
-                  <div style={{color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{a.paciente}</div>
+                  <div style={{color:C.text,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{a.paciente}</div>
+                  <div style={{color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p?.nome?.split(" ")[0]||"—"}</div>
                 </div>
               );})}
               {dia.ags.length>3&&<div style={{color:C.muted,fontSize:9,textAlign:"center"}}>+{dia.ags.length-3} mais</div>}
@@ -1856,6 +1859,8 @@ function Agendamentos({data,insert,update}) {
               {doDia.map(ag=>{
                 const p=data.profissionais.find(pr=>pr.id===ag.profissional_id);
                 const cor = p?.cor||C.accent;
+                const pac=data.pacientes.find(pc=>pc.id===ag.paciente_id);
+                const foneWhats=(pac?.whatsapp||pac?.telefone||"").replace(/\D/g,"");
                 return(
                   <div key={ag.id} className="fc" style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`4px solid ${cor}`,borderRadius:12,padding:14,boxShadow:"0 1px 8px #7C5CBF0A"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -1875,6 +1880,7 @@ function Agendamentos({data,insert,update}) {
                       <span style={{marginLeft:"auto",color:C.accent,fontWeight:700,fontSize:12}}>{fmt(ag.valor)}</span>
                     </div>
                     <div style={{display:"flex",gap:5}}>
+                      {foneWhats&&<a href={`https://wa.me/55${foneWhats}`} target="_blank" rel="noreferrer" title="Abrir conversa no WhatsApp" style={{background:C.success+"14",border:`1px solid ${C.success}30`,borderRadius:8,padding:"5px 9px",display:"flex",alignItems:"center",textDecoration:"none"}}><I.Whatsapp c={C.success} s={13}/></a>}
                       {ag.status==="aguardando"&&<Btn v="ok" onClick={()=>confirmar(ag.id)} style={{flex:1,justifyContent:"center",padding:"5px 0",fontSize:11}}><I.Check s={11}/> Confirmar</Btn>}
                       {(ag.status==="confirmado"||ag.status==="aguardando")&&<Btn v="i" onClick={()=>realizar(ag)} style={{flex:1,justifyContent:"center",padding:"5px 0",fontSize:11}}>Realizar</Btn>}
                       {ag.status!=="cancelado"&&ag.status!=="realizado"&&<Btn v="d" onClick={()=>cancelar(ag.id)} style={{padding:"5px 9px"}}><I.X s={11}/></Btn>}
@@ -1890,13 +1896,18 @@ function Agendamentos({data,insert,update}) {
       {visao==="lista"&&<>
         <FilterBar filters={[{key:"de",type:"date",label:"De"},{key:"ate",type:"date",label:"Até"},{key:"profissional",type:"select",label:"Profissional",options:data.profissionais.map(p=>({value:String(p.id),label:p.nome}))},{key:"procedimento",type:"select",label:"Procedimento",options:data.procedimentos.map(p=>({value:String(p.id),label:p.nome}))},{key:"status",type:"select",label:"Status",options:["aguardando","confirmado","realizado","cancelado"].map(s=>({value:s,label:s}))}]} values={filt} onChange={ff}/>
         <ST cols={["Paciente","Procedimento","Profissional","Data","Hora","Valor","Status","Ações"]}
-          rows={lista.map(ag=>{const p=data.profissionais.find(p=>p.id===ag.profissional_id);return[
+          rows={lista.map(ag=>{
+            const p=data.profissionais.find(p=>p.id===ag.profissional_id);
+            const pac=data.pacientes.find(pc=>pc.id===ag.paciente_id);
+            const foneWhats=(pac?.whatsapp||pac?.telefone||"").replace(/\D/g,"");
+            return[
             <span style={{fontWeight:600}}>{ag.paciente}</span>,ag.servico,
             <span style={{color:p?.cor||C.accent,fontWeight:600}}>{p?.nome?.split(" ").slice(0,2).join(" ")}</span>,
             fmtDate(ag.data),<span style={{fontWeight:700}}>{ag.hora}</span>,
             <span style={{color:C.accent,fontWeight:700}}>{fmt(ag.valor)}</span>,
             <Badge text={ag.status} color={sc[ag.status]||C.muted}/>,
             <div style={{display:"flex",gap:4}}>
+              {foneWhats&&<a href={`https://wa.me/55${foneWhats}`} target="_blank" rel="noreferrer" title="Abrir conversa no WhatsApp" style={{padding:"3px 7px",display:"flex",alignItems:"center"}}><I.Whatsapp c={C.success} s={12}/></a>}
               {ag.status==="aguardando"&&<Btn v="ok" onClick={()=>confirmar(ag.id)} style={{padding:"3px 7px"}}><I.Check s={11}/></Btn>}
               {(ag.status==="confirmado"||ag.status==="aguardando")&&<Btn v="i" onClick={()=>realizar(ag)} style={{padding:"3px 7px",fontSize:10}}>Realizar</Btn>}
               {ag.status!=="cancelado"&&ag.status!=="realizado"&&<Btn v="d" onClick={()=>cancelar(ag.id)} style={{padding:"3px 7px"}}><I.X s={11}/></Btn>}
@@ -3638,7 +3649,7 @@ function Precos({data, update}) {
 
       <div className="stat-row" style={{display:"flex",gap:9,marginBottom:14,flexWrap:"wrap"}}>
         <SC label="Total Despesas" value={fmt(tf+tv)} Icon={I.Dollar} color={C.danger}/>
-        <SC label="Custo/Atend." value={fmt(cpA)} Icon={I.Tag} color={C.purple} sub="Overhead médio"/>
+        <SC label="Custo/Atend." value={fmt(cpA)} Icon={I.Tag} color={C.purple} sub="Custo fixo médio"/>
         <SC label="Procedimentos" value={data.procedimentos.filter(p=>p.ativo).length} Icon={I.Scissors} color={C.accent}/>
         <SC label="Produtos" value={data.produtos.filter(p=>p.ativo).length} Icon={I.Box} color={C.info}/>
       </div>
@@ -3659,7 +3670,7 @@ function Precos({data, update}) {
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
             <thead><tr style={{background:C.surface}}>
-              {["Nome","Tipo","Categoria","Custo Insumos","Overhead","Custo Total","Markup %","Preço Venda","Margem",""].map(h=>(
+              {["Nome","Tipo","Categoria","Custo Insumos","Custo Fixo","Custo Total","Markup %","Preço Venda","Margem",""].map(h=>(
                 <th key={h} style={{padding:"9px 12px",textAlign:"left",color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:.8,fontWeight:600,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr></thead>
