@@ -305,6 +305,7 @@ const mkDemo = () => ({
     {id:3,nome:"EPI",ativo:true},
   ],
   produto_fornecedores:[],
+  comissoes_fechamentos:[],
   salas:[
     {id:1,nome:"Sala 1 - Estética Facial",descricao:"18m², maca elétrica, espelho iluminado",valor_aluguel:1500,status:"alugada",locatario_nome:"Juliana Freitas",locatario_cpf:"123.456.789-00",locatario_telefone:"(11)98888-4444",contrato_inicio:"2025-01-10",contrato_fim:"2025-12-31",contrato_arquivo_nome:"",contrato_arquivo_base64:""},
     {id:2,nome:"Sala 2 - Estética Corporal",descricao:"22m², maca de massagem, ducha",valor_aluguel:1800,status:"disponivel"},
@@ -770,7 +771,7 @@ function useData(clinicaId) {
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
-        adquirentes, categorias_produtos, produto_fornecedores,
+        adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
       ] = await Promise.all([
         sb.get("profissionais",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("fornecedores",        `clinica_id=eq.${cid}&ativo=eq.true`),
@@ -803,6 +804,7 @@ function useData(clinicaId) {
         sb.get("adquirentes",         `clinica_id=eq.${cid}&order=nome.asc`),
         sb.get("categorias_produtos", `clinica_id=eq.${cid}&order=nome.asc`),
         sb.get("produto_fornecedores",`clinica_id=eq.${cid}`),
+        sb.get("comissoes_fechamentos",`clinica_id=eq.${cid}&order=data_fechamento.desc`),
       ]);
 
       setData({
@@ -814,7 +816,7 @@ function useData(clinicaId) {
         movimentacoes, estoque_movimentacoes,
         campanhas, atendimento_itens, compra_itens, comissoes, caixa_diario,
         salas, aluguel_pagamentos, horarios_profissional, bloqueios_agenda,
-        adquirentes, categorias_produtos, produto_fornecedores,
+        adquirentes, categorias_produtos, produto_fornecedores, comissoes_fechamentos,
       });
     } catch (e) {
       console.error("Erro ao carregar dados:", e);
@@ -5188,13 +5190,59 @@ function Salas({data, insert, update}) {
   );
 }
 
-function Comissoes({data, update, user}) {
+function Comissoes({data, update, insert, user}) {
   const isSupervisor = !user || user.role !== "profissional";
   const [aba,setAba] = useState("pendentes");
   const [baixaModal,setBaixaModal] = useState(null);
   const [baixaConta,setBaixaConta] = useState("");
   const [filt,setFilt] = useState({profissional:"",de:"",ate:""});
   const ff = (k,v) => setFilt(p=>({...p,[k]:v}));
+
+  // Fechamento de comissões (assinatura + baixa em lote por profissional/período)
+  const [fechModal,setFechModal] = useState(false);
+  const [fech,setFech] = useState({profissional_id:"",periodo_de:mesAtualRange().de,periodo_ate:mesAtualRange().ate});
+  const [assinandoFechamento,setAssinandoFechamento] = useState(false);
+  const [salvandoFechamento,setSalvandoFechamento] = useState(false);
+
+  const comissoesDoFechamento = useMemo(()=>{
+    if(!fech.profissional_id) return [];
+    return (data.comissoes||[]).filter(c=>
+      c.status==="pendente" && String(c.profissional_id)===String(fech.profissional_id) &&
+      c.data_atendimento>=fech.periodo_de && c.data_atendimento<=fech.periodo_ate
+    );
+  },[data.comissoes,fech]);
+  const totalFechamento = comissoesDoFechamento.reduce((s,c)=>s+(Number(c.valor_comissao)||0),0);
+
+  const confirmarFechamento = async (assinaturaBase64) => {
+    setSalvandoFechamento(true);
+    const prof = data.profissionais.find(p=>p.id===parseInt(fech.profissional_id));
+    const fechamento = await insert("comissoes_fechamentos",{
+      profissional_id:parseInt(fech.profissional_id),
+      periodo_de:fech.periodo_de, periodo_ate:fech.periodo_ate,
+      valor_total:totalFechamento, qtd_atendimentos:comissoesDoFechamento.length,
+      assinatura_base64:assinaturaBase64,
+    });
+    for(const c of comissoesDoFechamento){
+      await update("comissoes", c.id, {status:"paga", data_pagamento:today(), fechamento_id:fechamento?.id||null});
+    }
+    setSalvandoFechamento(false); setAssinandoFechamento(false); setFechModal(false);
+    if(window.confirm(`Comissões de ${prof?.nome||""} fechadas! Deseja imprimir o recibo agora?`)){
+      imprimirReciboFechamento({...fechamento, profissional_id:parseInt(fech.profissional_id)}, comissoesDoFechamento, prof);
+    }
+    setFech({profissional_id:"",periodo_de:mesAtualRange().de,periodo_ate:mesAtualRange().ate});
+  };
+
+  const imprimirReciboFechamento = (fechamento, itensComissao, prof) => {
+    const linhas = itensComissao.map(c=>`<tr><td>${fmtDate(c.data_atendimento)}</td><td>${c.paciente}</td><td>${c.servico}</td><td>${fmt(c.valor_atendimento)}</td><td>${fmtN(c.percentual)}%</td><td>${fmt(c.valor_comissao)}</td></tr>`).join("");
+    const corpo = `
+      <h1>Fechamento de Comissões</h1>
+      <div class="sub">VPBeauty — ${prof?.nome||""} — ${fmtDate(fechamento.periodo_de)} a ${fmtDate(fechamento.periodo_ate)}</div>
+      <table><thead><tr><th>Data</th><th>Paciente</th><th>Serviço</th><th>Valor Atend.</th><th>%</th><th>Comissão</th></tr></thead><tbody>${linhas}</tbody></table>
+      <div class="total">Total: ${fmt(fechamento.valor_total)}</div>
+      ${fechamento.assinatura_base64?`<div style="margin-top:24px"><div style="color:#777;font-size:11px;margin-bottom:4px">Assinatura do profissional:</div><img src="${fechamento.assinatura_base64}" style="height:70px"/></div>`:'<div class="assinatura">Assinatura do profissional</div>'}
+    `;
+    imprimirHTML(`Fechamento de Comissões — ${prof?.nome||""}`, corpo);
+  };
 
   const todas = useMemo(()=>{
     let l = [...(data.comissoes||[])];
@@ -5223,7 +5271,9 @@ function Comissoes({data, update, user}) {
 
   return(
     <div>
-      <PH title={isSupervisor?"Comissões":"Minhas Comissões"} sub={isSupervisor?"Controle de comissões por profissional":"Seus valores a receber e já recebidos"}/>
+      <PH title={isSupervisor?"Comissões":"Minhas Comissões"} sub={isSupervisor?"Controle de comissões por profissional":"Seus valores a receber e já recebidos"}>
+        {isSupervisor&&<Btn onClick={()=>setFechModal(true)}><I.Pen s={12}/> Fechar Comissões</Btn>}
+      </PH>
 
       <div className="stat-row" style={{display:"flex",gap:9,marginBottom:14,flexWrap:"wrap"}}>
         <SC label="A Pagar / A Receber" value={fmt(totalPendente)} Icon={I.Warn} color={C.warn} sub={`${pendentes.length} atendimento(s)`}/>
@@ -5237,14 +5287,14 @@ function Comissoes({data, update, user}) {
       ]} values={filt} onChange={ff}/>}
 
       <div style={{display:"flex",gap:8,marginBottom:13}}>
-        {[["pendentes",isSupervisor?"A Pagar":"A Receber",pendentes.length,C.warn],["pagas",isSupervisor?"Pagas":"Recebidas",pagas.length,C.success]].map(([id,label,qtd,cor])=>(
+        {[["pendentes",isSupervisor?"A Pagar":"A Receber",pendentes.length,C.warn],["pagas",isSupervisor?"Pagas":"Recebidas",pagas.length,C.success],...(isSupervisor?[["fechamentos","Fechamentos",(data.comissoes_fechamentos||[]).length,C.accent]]:[])].map(([id,label,qtd,cor])=>(
           <button key={id} onClick={()=>setAba(id)} style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${aba===id?cor:C.border}`,background:aba===id?cor+"14":"transparent",color:aba===id?cor:C.muted,fontSize:12,fontWeight:aba===id?700:400,cursor:"pointer"}}>
             {label} ({qtd})
           </button>
         ))}
       </div>
 
-      <ST cols={isSupervisor?["Profissional","Paciente","Procedimento","Data","Valor Atend.","%","Comissão","Status","Ação"]:["Paciente","Procedimento","Data","Valor Atend.","%","Comissão","Status"]}
+      {aba!=="fechamentos"&&<ST cols={isSupervisor?["Profissional","Paciente","Procedimento","Data","Valor Atend.","%","Comissão","Status","Ação"]:["Paciente","Procedimento","Data","Valor Atend.","%","Comissão","Status"]}
         rows={lista.map(c=>{
           const prof = data.profissionais.find(p=>p.id===c.profissional_id);
           const base = [
@@ -5268,7 +5318,22 @@ function Comissoes({data, update, user}) {
           return base;
         })}
         empty={aba==="pendentes"?"Nenhuma comissão pendente.":"Nenhuma comissão paga ainda."}
-      />
+      />}
+
+      {aba==="fechamentos"&&isSupervisor&&<ST cols={["Profissional","Período","Qtd. Atend.","Valor Total","Data do Fechamento","Ação"]}
+        rows={(data.comissoes_fechamentos||[]).map(fc=>{
+          const prof = data.profissionais.find(p=>p.id===fc.profissional_id);
+          return [
+            <span style={{fontWeight:600,color:prof?.cor||C.text}}>{prof?.nome||"—"}</span>,
+            <span style={{fontSize:11}}>{fmtDate(fc.periodo_de)} a {fmtDate(fc.periodo_ate)}</span>,
+            <span style={{fontSize:11}}>{fc.qtd_atendimentos}</span>,
+            <span style={{color:C.success,fontWeight:700}}>{fmt(fc.valor_total)}</span>,
+            <span style={{fontSize:11,color:C.muted}}>{fmtDate(fc.data_fechamento?.split?.("T")?.[0]||fc.data_fechamento)}</span>,
+            <Btn v="g" onClick={()=>imprimirReciboFechamento(fc, (data.comissoes||[]).filter(c=>c.fechamento_id===fc.id), prof)} style={{padding:"3px 8px",fontSize:10}}><I.Printer s={11}/> Recibo</Btn>,
+          ];
+        })}
+        empty="Nenhum fechamento de comissões ainda."
+      />}
 
       {baixaModal&&<Mod title={`Pagar Comissão — ${data.profissionais.find(p=>p.id===baixaModal.profissional_id)?.nome}`} onClose={()=>{setBaixaModal(null);setBaixaConta("");}}>
         <div style={{background:C.surface,borderRadius:9,padding:12,marginBottom:13}}>
@@ -5281,6 +5346,37 @@ function Comissoes({data, update, user}) {
           <Btn v="g" onClick={()=>{setBaixaModal(null);setBaixaConta("");}}>Cancelar</Btn>
           <Btn v="ok" onClick={confirmarBaixa} disabled={!baixaConta}><I.Check s={12}/> Confirmar Pagamento</Btn>
         </div>
+      </Mod>}
+
+      {fechModal&&<Mod title="Fechar Comissões" onClose={()=>{setFechModal(false);setAssinandoFechamento(false);}}>
+        {!assinandoFechamento?<>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
+            <Sel label="Profissional" value={fech.profissional_id} onChange={e=>setFech(f=>({...f,profissional_id:e.target.value}))} options={[{value:"",label:"Selecione..."}, ...data.profissionais.map(p=>({value:p.id,label:p.nome}))]} style={{gridColumn:"1/-1"}}/>
+            <Inp label="Período de" type="date" value={fech.periodo_de} onChange={e=>setFech(f=>({...f,periodo_de:e.target.value}))}/>
+            <Inp label="Período até" type="date" value={fech.periodo_ate} onChange={e=>setFech(f=>({...f,periodo_ate:e.target.value}))}/>
+          </div>
+          {fech.profissional_id&&<>
+            <ST cols={["Data","Paciente","Serviço","Comissão"]}
+              rows={comissoesDoFechamento.map(c=>[fmtDate(c.data_atendimento),<span style={{fontSize:11}}>{c.paciente}</span>,<span style={{fontSize:11,color:C.muted}}>{c.servico}</span>,<span style={{fontWeight:600,color:C.warn}}>{fmt(c.valor_comissao)}</span>])}
+              empty="Nenhuma comissão pendente deste profissional neste período."
+            />
+            <div style={{display:"flex",justifyContent:"flex-end",gap:16,marginTop:10,marginBottom:4}}>
+              <span style={{color:C.muted,fontSize:12}}>Total a fechar:</span>
+              <span style={{color:C.accent,fontWeight:700,fontSize:16}}>{fmt(totalFechamento)}</span>
+            </div>
+          </>}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
+            <Btn v="g" onClick={()=>setFechModal(false)}>Cancelar</Btn>
+            <Btn onClick={()=>setAssinandoFechamento(true)} disabled={comissoesDoFechamento.length===0}><I.Pen s={12}/> Ir para Assinatura</Btn>
+          </div>
+        </>:<>
+          <div style={{background:C.accentSoft,borderRadius:9,padding:12,marginBottom:14,textAlign:"center"}}>
+            <div style={{color:C.muted,fontSize:11}}>{data.profissionais.find(p=>p.id===parseInt(fech.profissional_id))?.nome} — {comissoesDoFechamento.length} atendimento(s)</div>
+            <div style={{color:C.accent,fontWeight:700,fontSize:20}}>{fmt(totalFechamento)}</div>
+          </div>
+          <SignaturePad onSave={confirmarFechamento} onCancel={()=>setAssinandoFechamento(false)}/>
+          {salvandoFechamento&&<div style={{textAlign:"center",color:C.muted,fontSize:11,marginTop:8}}><Spin s={12} c={C.muted}/> Fechando...</div>}
+        </>}
       </Mod>}
     </div>
   );
@@ -6025,7 +6121,7 @@ function Sistema({user, onLogout}) {
       case "agendamentos": return <Agendamentos {...p} onRealizar={(dados)=>{setAtendimentoParaAbrir(dados);setPag("atendimentos");}}/>;
       case "atendimentos": return <Atendimentos {...p} user={user} abrirDados={atendimentoParaAbrir} onAbriu={()=>setAtendimentoParaAbrir(null)}/>;
       case "pacientes":    return <Pacientes {...p} dadosCompletos={data} user={user}/>;
-      case "comissoes":    return <Comissoes data={dataFiltrada} update={update} user={user}/>;
+      case "comissoes":    return <Comissoes data={dataFiltrada} update={update} insert={insert} user={user}/>;
       case "fornecedores": return <Fornecedores {...p}/>;
       case "produtos":     return <Produtos {...p}/>;
       case "procedimentos":return <Procedimentos {...p}/>;
