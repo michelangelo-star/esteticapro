@@ -60,6 +60,39 @@ const sb = {
     } catch (e) { console.error(`PATCH ${tabela}:`, e); return null; }
   },
 
+  /* Storage — usado pelas fotos de antes/depois do atendimento (bucket privado "atendimento-fotos").
+     Bucket privado: não dá pra usar getPublicUrl direto num <img src>, então baixamos o arquivo
+     autenticado e viramos blob URL local. */
+  async uploadFoto(path, file) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/storage/v1/object/atendimento-fotos/${path}`, {
+        method: "POST",
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${_sessionToken}`, "Content-Type": file.type || "application/octet-stream", "x-upsert": "true" },
+        body: file,
+      });
+      if (!r.ok) { console.error("uploadFoto:", r.status, await r.text()); return false; }
+      return true;
+    } catch (e) { console.error("uploadFoto:", e); return false; }
+  },
+  async fetchFotoBlobUrl(path) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/storage/v1/object/atendimento-fotos/${path}`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${_sessionToken}` },
+      });
+      if (!r.ok) return null;
+      const blob = await r.blob();
+      return URL.createObjectURL(blob);
+    } catch (e) { console.error("fetchFotoBlobUrl:", e); return null; }
+  },
+  async deleteFoto(path) {
+    try {
+      await fetch(`${SUPABASE_URL}/storage/v1/object/atendimento-fotos/${path}`, {
+        method: "DELETE",
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${_sessionToken}` },
+      });
+    } catch (e) { console.error("deleteFoto:", e); }
+  },
+
   /* Remove um registro pelo id */
   async del(tabela, id) {
     try {
@@ -2344,6 +2377,61 @@ function Agendamentos({data,insert,update,onRealizar,dadosCompletos,user}) {
 
 
 /* ─── ATENDIMENTOS ───────────────────────────────────────────── */
+/* Galeria de fotos antes/depois de um atendimento — até 6 de cada tipo.
+   Bucket privado no Supabase Storage: cada foto é baixada autenticada e virada blob URL local
+   (não dá pra usar um <img src> direto num bucket privado). Caminho do arquivo:
+   {clinica_id}/{atendimento_id}/{tipo}_{timestamp}_{nome} — a policy de Storage já restringe
+   por clinica_id lendo o primeiro pedaço desse caminho. */
+function FotoGaleria({atendimentoId, tipo, fotos, insert, clinicaId, somenteLeitura}) {
+  const [urls,setUrls] = useState({});
+  useEffect(()=>{
+    fotos.forEach(f=>{
+      if(urls[f.id]===undefined){
+        setUrls(u=>({...u,[f.id]:null}));
+        sb.fetchFotoBlobUrl(f.storage_path).then(url=>setUrls(u=>({...u,[f.id]:url})));
+      }
+    });
+  },[fotos]); // eslint-disable-line
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if(!file || fotos.length>=6) return;
+    if(file.size > 6*1024*1024){ alert("Imagem muito grande. Máximo 6MB."); return; }
+    const nomeLimpo = file.name.replace(/[^a-zA-Z0-9._-]/g,"");
+    const path = `${clinicaId}/${atendimentoId}/${tipo}_${Date.now()}_${nomeLimpo}`;
+    const ok = await sb.uploadFoto(path, file);
+    if(ok) await insert("atendimento_fotos",{atendimento_id:atendimentoId, tipo, storage_path:path});
+    else alert("Não foi possível enviar a foto.");
+  };
+  const handleRemove = async (foto) => {
+    await sb.deleteFoto(foto.storage_path);
+    await fetch(`${SUPABASE_URL}/rest/v1/atendimento_fotos?id=eq.${foto.id}`,{method:"DELETE",headers:getHeaders()});
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:somenteLeitura?0:8}}>
+        {fotos.map(f=>(
+          <div key={f.id} style={{position:"relative",width:72,height:72,borderRadius:8,overflow:"hidden",background:C.surface,border:`1px solid ${C.border}`}}>
+            {urls[f.id]
+              ? <a href={urls[f.id]} target="_blank" rel="noreferrer"><img src={urls[f.id]} alt={tipo} style={{width:"100%",height:"100%",objectFit:"cover"}}/></a>
+              : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}><Spin s={14} c={C.muted}/></div>}
+            {!somenteLeitura&&<button onClick={()=>handleRemove(f)} style={{position:"absolute",top:2,right:2,background:"#0008",border:"none",borderRadius:"50%",width:18,height:18,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}><I.X s={10}/></button>}
+          </div>
+        ))}
+        {!somenteLeitura&&fotos.length<6&&
+          <label style={{width:72,height:72,borderRadius:8,border:`1px dashed ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:C.muted}}>
+            <I.Plus s={16}/>
+            <input type="file" accept="image/*" onChange={handleUpload} style={{display:"none"}}/>
+          </label>
+        }
+      </div>
+      {fotos.length===0&&somenteLeitura&&<p style={{color:C.muted,fontSize:11}}>Nenhuma foto.</p>}
+    </div>
+  );
+}
+
 function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu}) {
   const [prontuarioAberto,setProntuarioAberto]=useState(null);
   const isSupervisor = !user || user.role !== "profissional";
@@ -2805,6 +2893,21 @@ function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu
           </div>}
         </div>
 
+        {/* Fotos antes/depois — só disponível depois do primeiro salvamento (precisa do id do atendimento) */}
+        {editingId&&<div style={{background:C.surface,borderRadius:10,padding:13,marginBottom:14,border:`1px solid ${C.border}`}}>
+          <div style={{color:C.text,fontSize:12,fontWeight:700,marginBottom:10}}>Fotos</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            <div>
+              <div style={{color:C.muted,fontSize:10,textTransform:"uppercase",marginBottom:6}}>Antes</div>
+              <FotoGaleria atendimentoId={editingId} tipo="antes" fotos={(data.atendimento_fotos||[]).filter(f=>f.atendimento_id===editingId&&f.tipo==="antes")} insert={insert} clinicaId={user?.id} somenteLeitura={somenteLeitura}/>
+            </div>
+            <div>
+              <div style={{color:C.muted,fontSize:10,textTransform:"uppercase",marginBottom:6}}>Depois</div>
+              <FotoGaleria atendimentoId={editingId} tipo="depois" fotos={(data.atendimento_fotos||[]).filter(f=>f.atendimento_id===editingId&&f.tipo==="depois")} insert={insert} clinicaId={user?.id} somenteLeitura={somenteLeitura}/>
+            </div>
+          </div>
+        </div>}
+
         {/* Pagamento */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:12}}>
           <Inp label="Desconto (R$)" type="number" value={cab.desconto} onChange={e=>fc("desconto",e.target.value)} disabled={somenteLeitura}/>
@@ -3052,6 +3155,24 @@ function ProntuarioModal({paciente, data, dadosCompletos, insert, update, user, 
                       {at.forma_pagamento&&<span style={{color:C.muted,fontSize:10}}>· {at.forma_pagamento}</span>}
                     </div>
                     {at.observacoes&&<div style={{color:C.muted,fontSize:11,marginTop:6,fontStyle:"italic"}}>"{at.observacoes}"</div>}
+                    {(()=>{
+                      const fotosAt = (data.atendimento_fotos||[]).filter(f=>f.atendimento_id===at.id);
+                      if(fotosAt.length===0) return null;
+                      return (
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:8}}>
+                          {["antes","depois"].map(tipo=>{
+                            const fs=fotosAt.filter(f=>f.tipo===tipo);
+                            if(fs.length===0) return null;
+                            return (
+                              <div key={tipo}>
+                                <div style={{color:C.muted,fontSize:9,textTransform:"uppercase",marginBottom:4}}>{tipo}</div>
+                                <FotoGaleria atendimentoId={at.id} tipo={tipo} fotos={fs} insert={insert} clinicaId={user?.id} somenteLeitura/>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               );
