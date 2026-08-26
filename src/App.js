@@ -690,6 +690,96 @@ const PacienteBusca = ({pacientes, value, onChange, insert, label="Paciente"}) =
   );
 };
 
+/* Busca de fornecedor com criação rápida — mesmo padrão de PacienteBusca, usado onde hoje
+   só existe um campo de texto livre pro nome do fornecedor (lançamento financeiro). */
+const FornecedorBusca = ({fornecedores, value, onChange, insert, label="Fornecedor"}) => {
+  const [busca,setBusca] = useState("");
+  const [aberto,setAberto] = useState(false);
+  const [modalNovo,setModalNovo] = useState(false);
+  const [novoNome,setNovoNome] = useState("");
+  const [novoTel,setNovoTel] = useState("");
+  const [salvando,setSalvando] = useState(false);
+  const wrapRef = useRef(null);
+
+  const selecionado = fornecedores.find(f=>String(f.id)===String(value));
+
+  useEffect(()=>{
+    const fechar = e => { if(wrapRef.current && !wrapRef.current.contains(e.target)) setAberto(false); };
+    document.addEventListener("mousedown", fechar);
+    return () => document.removeEventListener("mousedown", fechar);
+  },[]);
+
+  const filtrados = useMemo(()=>{
+    if(!busca.trim()) return fornecedores.slice(0,8);
+    const b = busca.toLowerCase();
+    return fornecedores.filter(f=>(f.nome_fantasia||"").toLowerCase().includes(b)||(f.razao_social||"").toLowerCase().includes(b)).slice(0,8);
+  },[busca,fornecedores]);
+
+  const escolher = (f) => { onChange(f.id, f.nome_fantasia||f.razao_social); setBusca(""); setAberto(false); };
+  const abrirCadastroRapido = () => { setNovoNome(busca); setNovoTel(""); setModalNovo(true); setAberto(false); };
+
+  const salvarNovoFornecedor = async () => {
+    if(!novoNome.trim()) return;
+    setSalvando(true);
+    const novo = await insert("fornecedores",{razao_social:novoNome.trim(),nome_fantasia:novoNome.trim(),telefone:novoTel});
+    setSalvando(false);
+    if(novo){ onChange(novo.id, novo.nome_fantasia||novo.razao_social); }
+    setModalNovo(false); setBusca("");
+  };
+
+  return (
+    <div style={{marginBottom:11,position:"relative"}} ref={wrapRef}>
+      <label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>{label}</label>
+      <div style={{display:"flex",gap:6}}>
+        <div style={{flex:1,position:"relative"}}>
+          <input
+            type="text"
+            value={aberto ? busca : (selecionado?.nome_fantasia||selecionado?.razao_social||"")}
+            onFocus={()=>{setAberto(true); setBusca("");}}
+            onChange={e=>{setBusca(e.target.value); setAberto(true); if(value) onChange("","");}}
+            placeholder="Digite o nome para buscar..."
+            style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:13}}
+          />
+          {aberto&&(
+            <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 8px 24px #4A3D6225",zIndex:50,maxHeight:220,overflowY:"auto"}}>
+              {filtrados.length===0
+                ? <div style={{padding:"12px 14px",color:C.muted,fontSize:12}}>Nenhum fornecedor encontrado.</div>
+                : filtrados.map(f=>(
+                    <button key={f.id} onClick={()=>escolher(f)} style={{width:"100%",textAlign:"left",padding:"9px 14px",background:"transparent",border:"none",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+                      <div style={{color:C.text,fontSize:12,fontWeight:600}}>{f.nome_fantasia||f.razao_social}</div>
+                    </button>
+                  ))
+              }
+              <button onClick={abrirCadastroRapido} style={{width:"100%",textAlign:"left",padding:"10px 14px",background:C.accentSoft,border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
+                <I.Plus c={C.accent} s={13}/>
+                <span style={{color:C.accent,fontSize:12,fontWeight:600}}>{busca.trim()?`Cadastrar "${busca.trim()}" como novo fornecedor`:"Cadastrar novo fornecedor"}</span>
+              </button>
+            </div>
+          )}
+        </div>
+        <button type="button" onClick={abrirCadastroRapido} title="Cadastrar novo fornecedor"
+          style={{background:C.accentSoft,border:`1px solid ${C.accent}40`,borderRadius:8,width:38,flexShrink:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <I.Plus c={C.accent} s={16}/>
+        </button>
+      </div>
+
+      {modalNovo&&<Mod title="Cadastro Rápido de Fornecedor" onClose={()=>setModalNovo(false)}>
+        <Inp label="Nome" value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Nome do fornecedor"/>
+        <Inp label="Telefone" value={novoTel} onChange={e=>setNovoTel(maskFone(e.target.value))} placeholder="(11) 99999-9999"/>
+        <div style={{background:C.info+"10",border:`1px solid ${C.info}25`,borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:11,color:C.info}}>
+          Cadastro simplificado. Você pode completar CNPJ, endereço e demais dados depois em Fornecedores.
+        </div>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn v="g" onClick={()=>setModalNovo(false)}>Cancelar</Btn>
+          <Btn onClick={salvarNovoFornecedor} disabled={!novoNome.trim()||salvando}>
+            {salvando?<><Spin s={12} c="#FFFFFF"/>Salvando...</>:<><I.Check s={12}/> Cadastrar e Usar</>}
+          </Btn>
+        </div>
+      </Mod>}
+    </div>
+  );
+};
+
 /* Seleção de categoria (compartilhada entre Produtos e Procedimentos) com criação rápida.
    O valor gravado continua sendo o nome (texto), como já era — só passa a vir de uma lista
    cadastrada em vez de digitado livre, evitando "Skincare"/"skin care"/"Skin Care" nas mesmas telas. */
@@ -711,6 +801,39 @@ const CategoriaSelect = ({data, insert, value, onChange, label="Categoria"}) => 
           if(!nome) return;
           await insert("categorias_produtos",{nome,ativo:true});
           onChange(nome); setNovoNome(""); setAddingNew(false);
+        }} style={{background:C.accentSoft,border:`1px solid ${C.accent}40`,borderRadius:8,width:38,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Check c={C.accent} s={14}/></button>
+        <button type="button" onClick={()=>{setAddingNew(false);setNovoNome("");}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:38,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.X c={C.muted} s={14}/></button>
+      </div>
+    </div>
+  );
+
+  return (
+    <Sel label={label} value={value||""} onChange={e=>{
+      if(e.target.value==="__nova__") setAddingNew(true);
+      else onChange(e.target.value);
+    }} options={[{value:"",label:"Selecione..."}, ...opcoes, {value:"__nova__",label:"+ Nova categoria..."}]}/>
+  );
+};
+
+/* Seleção de categoria financeira (contas a pagar/receber) por tipo, com criação rápida.
+   Diferente de CategoriaSelect: aqui o valor gravado é o id (categoria_id é FK), não o nome. */
+const CategoriaFinanceiraSelect = ({data, insert, tipo, value, onChange, label="Categoria"}) => {
+  const [addingNew,setAddingNew] = useState(false);
+  const [novoNome,setNovoNome] = useState("");
+  const opcoes = (data.categorias_financeiras||[]).filter(c=>c.tipo===tipo&&c.ativo!==false).map(c=>({value:String(c.id), label:c.nome}));
+
+  if(addingNew) return (
+    <div>
+      <label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>{label}</label>
+      <div style={{display:"flex",gap:6}}>
+        <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Nova categoria..."
+          style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:13}}/>
+        <button type="button" onClick={async()=>{
+          const nome=novoNome.trim();
+          if(!nome) return;
+          const criado = await insert("categorias_financeiras",{nome,tipo,ativo:true,conta_dre_id:null,competencia:"unica"});
+          if(criado) onChange(String(criado.id));
+          setNovoNome(""); setAddingNew(false);
         }} style={{background:C.accentSoft,border:`1px solid ${C.accent}40`,borderRadius:8,width:38,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.Check c={C.accent} s={14}/></button>
         <button type="button" onClick={()=>{setAddingNew(false);setNovoNome("");}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:38,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><I.X c={C.muted} s={14}/></button>
       </div>
@@ -777,7 +900,7 @@ function useData(clinicaId) {
       ] = await Promise.all([
         sb.get("profissionais",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("fornecedores",        `clinica_id=eq.${cid}&ativo=eq.true`),
-        sb.get("produtos",            `clinica_id=eq.${cid}&ativo=eq.true`),
+        sb.get("produtos",            `clinica_id=eq.${cid}&ativo=eq.true&order=id.desc`),
         sb.get("procedimentos",       `clinica_id=eq.${cid}&ativo=eq.true`),
         sb.get("procedimento_insumos",`clinica_id=eq.${cid}`),
         sb.get("formas_pagamento",    `clinica_id=eq.${cid}&ativo=eq.true`),
@@ -793,7 +916,7 @@ function useData(clinicaId) {
         sb.get("categorias_financeiras",`clinica_id=eq.${cid}&order=nome.asc`),
         sb.get("contas_dre",          `clinica_id=eq.${cid}&order=ordem.asc`),
         sb.get("movimentacoes",       `clinica_id=eq.${cid}&order=data.desc`),
-        sb.get("estoque_movimentacoes",`clinica_id=eq.${cid}&order=data.desc`),
+        sb.get("estoque_movimentacoes",`clinica_id=eq.${cid}&order=data.desc,id.desc`),
         sb.get("campanhas",           `clinica_id=eq.${cid}&order=created_at.desc`),
         sb.get("atendimento_itens",   `clinica_id=eq.${cid}`),
         sb.get("compra_itens",        `clinica_id=eq.${cid}`),
@@ -2059,6 +2182,7 @@ function Agendamentos({data,insert,update,onRealizar}) {
 function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
   const isSupervisor = !user || user.role !== "profissional";
   const [modal,setModal] = useState(false); // false | "novo" | {id}
+  const [msgSalvo,setMsgSalvo] = useState("");
   const [editingId,setEditingId] = useState(null); // id do atendimento em edição (já existe no banco)
   const [receberModal,setReceberModal] = useState(null); // atendimento aguardando confirmação de recebimento
   const [contaEscolhida,setContaEscolhida] = useState("");
@@ -2082,6 +2206,7 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
     setItens(itensExistentes.length>0?itensExistentes:[{tipo:"procedimento",ref_id:"",descricao:"",quantidade:1,valor_unitario:0,valor_total:0}]);
     setEditingId(at.id);
     setModal({id:at.id});
+    setMsgSalvo("");
   };
 
   /* Abre automaticamente quando a Agenda manda um atendimento recém-criado (botão "Realizar").
@@ -2255,6 +2380,7 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
     setItens([{tipo:"procedimento",ref_id:"",descricao:"",quantidade:1,valor_unitario:0,valor_total:0}]);
     setEditingId(null);
     setModal("novo");
+    setMsgSalvo("");
   };
 
   /* Salva cabeçalho + itens enquanto o atendimento está "aberto" (rascunho editável).
@@ -2489,9 +2615,17 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
           </span>
         </div>}
 
+        {msgSalvo&&<div style={{background:C.success+"14",border:`1px solid ${C.success}35`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
+          <I.Check c={C.success} s={13}/><span style={{color:C.success,fontSize:11,fontWeight:600}}>{msgSalvo}</span>
+        </div>}
+
         {!somenteLeitura&&<div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <Btn v="g" onClick={()=>{setModal(false);setEditingId(null);}}>Cancelar</Btn>
-          <Btn v="g" onClick={salvarRascunho} disabled={!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)}>
+          <Btn v="g" onClick={()=>{setModal(false);setEditingId(null);setMsgSalvo("");}}>Cancelar</Btn>
+          <Btn v="g" onClick={async()=>{
+            setMsgSalvo("");
+            const ok = await salvarRascunho();
+            if(ok) setMsgSalvo("✓ Rascunho salvo! Pode continuar editando ou fechar a janela em \"Cancelar\" sem perder nada.");
+          }} disabled={!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)}>
             Salvar Rascunho
           </Btn>
           <Btn onClick={fecharAtendimento} disabled={!cab.paciente_id||!cab.profissional_id||itens.length===0||itens.every(i=>!i.ref_id)||!cab.forma_pagamento_id}>
@@ -3401,8 +3535,6 @@ function Financeiro({data,insert,update,user}) {
   const [caixaModal,setCaixaModal]=useState(null); // {tipo:'abrir'|'fechar', conta}
   const [caixaValor,setCaixaValor]=useState("");
 
-  const categoriasReceita = (data.categorias_financeiras||[]).filter(c=>c.tipo==="receita"&&c.ativo!==false);
-  const categoriasDespesa = (data.categorias_financeiras||[]).filter(c=>c.tipo==="despesa"&&c.ativo!==false);
   const nomeCategoria = (id) => (data.categorias_financeiras||[]).find(c=>c.id===Number(id))?.nome || "Sem categoria";
 
   const cr_lista=useMemo(()=>{
@@ -3452,7 +3584,7 @@ function Financeiro({data,insert,update,user}) {
     setBaixaModal(null);setBaixaConta("");
   };
   const abrirModalLancamento = (tipo) => {
-    setForm({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",paciente:"",recorrente:false,parcelas:1});
+    setForm({descricao:"",valor:0,vencimento:today(),data_competencia:today(),data_lancamento:today(),categoria_id:"",fornecedor:"",fornecedor_id:"",paciente:"",paciente_id:"",recorrente:false,parcelas:1});
     setModal(tipo);
   };
 
@@ -3823,10 +3955,12 @@ function Financeiro({data,insert,update,user}) {
       {modal&&<Mod title={modal==="rec"?"Nova Conta a Receber":"Nova Conta a Pagar"} onClose={()=>setModal(null)}>
         <Inp label="Descrição" value={form.descricao} onChange={e=>setForm(f=>({...f,descricao:e.target.value}))}/>
         <Inp label="Valor (R$)" type="number" value={form.valor} onChange={e=>setForm(f=>({...f,valor:e.target.value}))}/>
-        {modal==="pag"&&<Inp label="Fornecedor" value={form.fornecedor} onChange={e=>setForm(f=>({...f,fornecedor:e.target.value}))}/>}
-        {modal==="rec"&&<Inp label="Paciente" value={form.paciente} onChange={e=>setForm(f=>({...f,paciente:e.target.value}))}/>}
-        <Sel label="Categoria" value={form.categoria_id} onChange={e=>setForm(f=>({...f,categoria_id:e.target.value}))}
-          options={[{value:"",label:"Selecione..."}, ...(modal==="rec"?categoriasReceita:categoriasDespesa).map(c=>({value:c.id,label:c.nome}))]}/>
+        {modal==="pag"&&<FornecedorBusca fornecedores={data.fornecedores} insert={insert} value={form.fornecedor_id}
+          onChange={(id,nome)=>setForm(f=>({...f,fornecedor_id:id,fornecedor:nome}))}/>}
+        {modal==="rec"&&<PacienteBusca pacientes={data.pacientes} insert={insert} value={form.paciente_id}
+          onChange={(id,nome)=>setForm(f=>({...f,paciente_id:id,paciente:nome}))}/>}
+        <CategoriaFinanceiraSelect data={data} insert={insert} tipo={modal==="rec"?"receita":"despesa"} value={form.categoria_id}
+          onChange={v=>setForm(f=>({...f,categoria_id:v}))}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Vencimento" type="date" value={form.vencimento} onChange={e=>setForm(f=>({...f,vencimento:e.target.value}))}/>
           <Inp label="Data de Competência" type="date" value={form.data_competencia} onChange={e=>setForm(f=>({...f,data_competencia:e.target.value}))}/>
@@ -3857,8 +3991,8 @@ function Financeiro({data,insert,update,user}) {
                 categoria_id:form.categoria_id?Number(form.categoria_id):null, status:"aberto",
                 grupo_parcelamento_id:grupoId, numero_parcela:totalParcelas>1?i+1:null, total_parcelas:totalParcelas>1?totalParcelas:null,
               };
-              if(modal==="rec")await insert("contas_receber",{...base,paciente:form.paciente});
-              if(modal==="pag")await insert("contas_pagar",{...base,fornecedor:form.fornecedor,recorrente:!!form.recorrente});
+              if(modal==="rec")await insert("contas_receber",{...base,paciente:form.paciente,paciente_id:form.paciente_id?Number(form.paciente_id):null});
+              if(modal==="pag")await insert("contas_pagar",{...base,fornecedor:form.fornecedor,fornecedor_id:form.fornecedor_id?Number(form.fornecedor_id):null,recorrente:!!form.recorrente});
             }
             setModal(null);
           }}><I.Check s={12}/> Salvar</Btn>
