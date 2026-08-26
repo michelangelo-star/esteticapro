@@ -377,6 +377,26 @@ const today = () => new Date().toISOString().split("T")[0];
 const addDias = (dataISO, dias) => { const d=new Date(dataISO+"T12:00:00"); d.setDate(d.getDate()+(Number(dias)||0)); return d.toISOString().split("T")[0]; };
 const addMeses = (dataISO, meses) => { const d=new Date(dataISO+"T12:00:00"); d.setMonth(d.getMonth()+(Number(meses)||0)); return d.toISOString().split("T")[0]; };
 const gerarUUID = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+/* FEFO — consome sempre o lote que vence primeiro. Usada em todo ponto que baixa estoque
+   de um produto com "controla_validade" (fechamento de atendimento, ajuste manual de saída). */
+const consumirLotesFEFO = async (data, update, produtoId, qtdNecessaria) => {
+  if(qtdNecessaria<=0) return;
+  const lotes = (data.produto_lotes||[]).filter(l=>l.produto_id===produtoId && Number(l.quantidade)>0)
+    .sort((a,b)=>(a.validade||"9999-12-31").localeCompare(b.validade||"9999-12-31"));
+  let restante = qtdNecessaria;
+  for(const lote of lotes){
+    if(restante<=0) break;
+    const qtdLote = Number(lote.quantidade)||0;
+    if(qtdLote<=restante){
+      if(!DEMO_MODE) await fetch(`${SUPABASE_URL}/rest/v1/produto_lotes?id=eq.${lote.id}`,{method:"DELETE",headers:getHeaders()});
+      restante -= qtdLote;
+    } else {
+      await update("produto_lotes", lote.id, {quantidade: qtdLote-restante});
+      restante = 0;
+    }
+  }
+};
 const mesAtualRange = () => { const h=new Date(); const de=new Date(h.getFullYear(),h.getMonth(),1); const ate=new Date(h.getFullYear(),h.getMonth()+1,0); return {de:de.toISOString().split("T")[0], ate:ate.toISOString().split("T")[0]}; };
 
 /* Estrutura padrão de DRE gerencial — os 7 grupos são fixos (formato de mercado);
@@ -2744,6 +2764,7 @@ function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu
           const qtdBaixa = (Number(ins.quantidade)||0)*(Number(item.quantidade)||1);
           const novoEst = Math.max(0,(Number(prod.estoque_atual)||0)-qtdBaixa);
           await update("produtos",prod.id,{estoque_atual:novoEst});
+          if(prod.controla_validade) await consumirLotesFEFO(data, update, prod.id, qtdBaixa);
           await insert("estoque_movimentacoes",{
             produto_id:prod.id, tipo:"uso_procedimento",
             quantidade:qtdBaixa, custo_unitario:Number(prod.custo_unitario)||0,
@@ -2759,6 +2780,7 @@ function Atendimentos({data,insert,update,user,dadosCompletos,abrirDados,onAbriu
           const qtdBaixa = Number(item.quantidade)||1;
           const novoEst = Math.max(0,(Number(prod.estoque_atual)||0)-qtdBaixa);
           await update("produtos",prod.id,{estoque_atual:novoEst});
+          if(prod.controla_validade) await consumirLotesFEFO(data, update, prod.id, qtdBaixa);
           await insert("estoque_movimentacoes",{
             produto_id:prod.id, tipo:"saida",
             quantidade:qtdBaixa, custo_unitario:Number(prod.custo_unitario)||0,
@@ -3343,7 +3365,7 @@ function Fornecedores({data,insert,update,remove}) {
 /* ─── PRODUTOS ───────────────────────────────────────────────── */
 function Produtos({data,insert,update,remove}) {
   const [modal,setModal]=useState(false);const [editing,setEditing]=useState(null);
-  const init={fornecedor_id:"",nome:"",descricao:"",categoria:"",unidade:"unidade",custo_unitario:0,preco_venda:0,markup:0,estoque_atual:0,estoque_inicial:0,estoque_minimo:2,ativo:true};
+  const init={fornecedor_id:"",nome:"",descricao:"",categoria:"",unidade:"unidade",custo_unitario:0,preco_venda:0,markup:0,estoque_atual:0,estoque_inicial:0,estoque_minimo:2,ativo:true,controla_validade:false};
   const [form,setForm]=useState(init);const f=(k,v)=>setForm(p=>({...p,[k]:v}));
   // Fornecedores do produto, cada um com seu preço de compra e tamanho de embalagem
   const [fornProduto,setFornProduto]=useState([{fornecedor_id:"",preco_compra:0,embalagem_qtd:1}]);
@@ -3411,6 +3433,11 @@ function Produtos({data,insert,update,remove}) {
           <Inp label="Estoque atual" type="number" value={form.estoque_atual} onChange={e=>f("estoque_atual",e.target.value)}/>
           <Inp label="Estoque mínimo" type="number" value={form.estoque_minimo} onChange={e=>f("estoque_minimo",e.target.value)}/>
         </div>
+
+        <label style={{display:"flex",alignItems:"center",gap:9,cursor:"pointer",marginBottom:14}}>
+          <input type="checkbox" checked={!!form.controla_validade} onChange={e=>f("controla_validade",e.target.checked)} style={{accentColor:C.accent,width:16,height:16}}/>
+          <span style={{color:C.text,fontSize:12}}>Controla validade (lotes com data de vencimento — consumo sempre do lote mais próximo de vencer)</span>
+        </label>
 
         <div style={{background:C.surface,borderRadius:10,padding:13,margin:"12px 0",border:`1px solid ${C.border}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
@@ -3613,6 +3640,12 @@ function Estoque({data,insert,update,user}) {
 
   const baixo=data.produtos.filter(p=>p.estoque_atual<=p.estoque_minimo);
   const totalEstoque=data.produtos.reduce((s,p)=>s+(Number(p.estoque_atual)||0)*(Number(p.custo_unitario)||0),0);
+  const lotesVencendo = useMemo(()=>{
+    const limite = addDias(today(),30);
+    return (data.produto_lotes||[]).filter(l=>Number(l.quantidade)>0 && l.validade && l.validade<=limite)
+      .map(l=>({...l, produto:data.produtos.find(p=>p.id===l.produto_id)}))
+      .sort((a,b)=>(a.validade||"").localeCompare(b.validade||""));
+  },[data.produto_lotes,data.produtos]);
 
   const salvarEntrada = async () => {
     /* "embalagens" é quantas caixas/pacotes o usuário comprou; "embalagem_qtd" converte
@@ -3661,6 +3694,14 @@ function Estoque({data,insert,update,user}) {
         fornecedor_id:entrada.fornecedor_id?parseInt(entrada.fornecedor_id):null,
         data:entrada.data||today(),
       });
+
+      // Produto controla validade: registra o lote (consumo futuro sempre pelo mais próximo de vencer)
+      if(prod.controla_validade && item.validade){
+        await insert("produto_lotes",{
+          produto_id:prod.id, fornecedor_id:entrada.fornecedor_id?parseInt(entrada.fornecedor_id):null,
+          quantidade:qt, validade:item.validade, custo_unitario:cu,
+        });
+      }
     }
     setEntradaModal(false);
     setEntrada({fornecedor_id:"",data:today(),vencimento:"",observacoes:"",itens:[]});
@@ -3671,6 +3712,7 @@ function Estoque({data,insert,update,user}) {
     const prod=ajusteModal;const qt=Number(ajuste.quantidade)||0;const esqAnt=Number(prod.estoque_atual)||0;
     const esqNovo=ajuste.tipo==="ajuste_entrada"?esqAnt+qt:Math.max(0,esqAnt-qt);
     await update("produtos",prod.id,{estoque_atual:esqNovo});
+    if(ajuste.tipo==="ajuste_saida" && prod.controla_validade) await consumirLotesFEFO(data, update, prod.id, qt);
     await insert("estoque_movimentacoes",{produto_id:prod.id,tipo:ajuste.tipo,quantidade:qt,custo_unitario:Number(prod.custo_unitario)||0,custo_total:qt*(Number(prod.custo_unitario)||0),estoque_anterior:esqAnt,estoque_atual:esqNovo,origem:"ajuste",observacoes:ajuste.observacoes,data:today()});
     setAjusteModal(null);
   };
@@ -3683,6 +3725,7 @@ function Estoque({data,insert,update,user}) {
         <Btn v="g" onClick={()=>setEntradaModal(true)}><I.ShoppingCart s={12}/> Entrada de Compra</Btn>
       </PH>
       {baixo.length>0&&<div style={{background:C.danger+"14",border:`1px solid ${C.danger}30`,borderRadius:10,padding:"8px 12px",marginBottom:12}}><div style={{color:C.danger,fontSize:11,fontWeight:700,marginBottom:3}}>⚠ ESTOQUE CRÍTICO</div>{baixo.map(e=><div key={e.id} style={{color:C.text,fontSize:11}}>{e.nome} — {fmtN(e.estoque_atual)} {e.unidade}(s) restante(s)</div>)}</div>}
+      {lotesVencendo.length>0&&<div style={{background:C.warn+"14",border:`1px solid ${C.warn}30`,borderRadius:10,padding:"8px 12px",marginBottom:12}}><div style={{color:C.warn,fontSize:11,fontWeight:700,marginBottom:3}}>⚠ VALIDADE PRÓXIMA (30 dias)</div>{lotesVencendo.map(l=><div key={l.id} style={{color:C.text,fontSize:11}}>{l.produto?.nome||"Produto"} — {fmtN(l.quantidade)} {l.produto?.unidade||""} vencendo em {fmtDate(l.validade)}</div>)}</div>}
 
       <div style={{display:"flex",gap:8,marginBottom:13}}>
         {[["extrato","Extrato de Movimentações"],["produtos","Posição de Estoque"]].map(([id,label])=>(
@@ -3775,7 +3818,8 @@ function Estoque({data,insert,update,user}) {
             const qtdConvertida = (Number(item.embalagens)||0)*(Number(item.embalagem_qtd)||1);
             const prodItem = data.produtos.find(p=>p.id===parseInt(item.produto_id));
             return (
-            <div key={idx} style={{display:"grid",gridTemplateColumns:"2fr 85px 95px 100px 110px 36px",gap:8,marginBottom:8,alignItems:"end"}}>
+            <div key={idx} style={{marginBottom:8}}>
+            <div style={{display:"grid",gridTemplateColumns:"2fr 85px 95px 100px 110px 36px",gap:8,alignItems:"end"}}>
               <div>
                 {idx===0&&<label style={{display:"block",color:C.muted,fontSize:10,letterSpacing:.9,textTransform:"uppercase",marginBottom:4}}>Produto</label>}
                 <select value={item.produto_id}
@@ -3820,6 +3864,10 @@ function Estoque({data,insert,update,user}) {
                   <I.X c={C.danger} s={13}/>
                 </button>
               </div>
+            </div>
+            {prodItem?.controla_validade&&
+              <Inp label="Data de validade deste lote" type="date" value={item.validade||""} onChange={e=>setEntrada(en=>({...en,itens:en.itens.map((it,i)=>i!==idx?it:{...it,validade:e.target.value})}))} style={{marginTop:6,maxWidth:220}}/>
+            }
             </div>
           );})}
 
