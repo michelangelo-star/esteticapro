@@ -360,8 +360,22 @@ const maskCEP = v => v.replace(/\D/g,"").slice(0,8).replace(/(\d{5})(\d)/,"$1-$2
 const maskCpfCnpj = v => v.replace(/\D/g,"").length>11 ? maskCNPJ(v) : maskCPF(v);
 
 /* Impressão genérica — monta um iframe oculto com o HTML formatado e chama window.print().
-   Não existe biblioteca de impressão no projeto; esse é o único ponto usado por todas as telas. */
-const imprimirHTML = (titulo, corpoHtml) => {
+   Não existe biblioteca de impressão no projeto; esse é o único ponto usado por todas as telas.
+   Recebe a empresa cadastrada (Cadastros → Empresa) pra montar um cabeçalho padrão com
+   logo+identificação em todo documento, e quem emitiu no rodapé. */
+const imprimirHTML = (titulo, corpoHtml, empresa, emitidoPor) => {
+  const doc_ = empresa?.cpf_cnpj ? (empresa.tipo_pessoa==="fisica"?"CPF":"CNPJ") : null;
+  const linhaEndereco = [empresa?.endereco, [empresa?.cidade,empresa?.estado].filter(Boolean).join("/")].filter(Boolean).join(" — ");
+  const cabecalho = empresa ? `
+    <div class="letterhead">
+      ${empresa.logo_base64?`<img src="${empresa.logo_base64}" class="lh-logo"/>`:""}
+      <div class="lh-dados">
+        <div class="lh-nome">${empresa.nome_fantasia||empresa.nome||""}</div>
+        <div class="lh-info">${[doc_&&`${doc_}: ${empresa.cpf_cnpj}`, linhaEndereco||null, empresa.telefone].filter(Boolean).join(" · ")}</div>
+      </div>
+    </div>
+  ` : "";
+  const rodape = `<div class="rodape-emissao">${emitidoPor?`Emitido por ${emitidoPor} `:""}em ${new Date().toLocaleString("pt-BR")}</div>`;
   const iframe = document.createElement("iframe");
   Object.assign(iframe.style,{position:"fixed",right:"0",bottom:"0",width:"0",height:"0",border:"0"});
   document.body.appendChild(iframe);
@@ -377,8 +391,15 @@ const imprimirHTML = (titulo, corpoHtml) => {
     th{color:#777;text-transform:uppercase;font-size:9px;letter-spacing:.5px;}
     .total{font-size:16px;font-weight:700;text-align:right;margin-top:12px;}
     .assinatura{margin-top:70px;border-top:1px solid #333;width:280px;padding-top:6px;font-size:11px;color:#555;}
+    .letterhead{display:flex;align-items:center;gap:12px;padding-bottom:12px;margin-bottom:16px;border-bottom:2px solid #5B3F8C;}
+    .lh-logo{width:52px;height:52px;object-fit:contain;flex-shrink:0;}
+    .lh-nome{font-size:15px;font-weight:700;color:#5B3F8C;}
+    .lh-info{font-size:10px;color:#777;margin-top:2px;}
+    .quadro{border:1px solid #ddd;border-radius:8px;padding:12px;}
+    .quadro-titulo{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#999;margin-bottom:6px;font-weight:700;}
+    .rodape-emissao{margin-top:30px;font-size:9px;color:#aaa;}
     @media print{body{padding:0;}}
-  </style></head><body>${corpoHtml}</body></html>`);
+  </style></head><body>${cabecalho}${corpoHtml}${rodape}</body></html>`);
   doc.close();
   setTimeout(()=>{
     iframe.contentWindow.focus();
@@ -1737,9 +1758,12 @@ function Dashboard({data, user}) {
 
   return (
     <div>
-      <div style={{marginBottom:12}}>
-        <h2 style={{color:C.text,fontSize:17,fontWeight:700,marginBottom:2}}>Dashboard</h2>
-        <p style={{color:C.muted,fontSize:12}}>VPBeauty</p>
+      <div style={{marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+        {data.empresa?.logo_base64&&<img src={data.empresa.logo_base64} alt="Logo" style={{width:34,height:34,objectFit:"contain",borderRadius:6}}/>}
+        <div>
+          <h2 style={{color:C.text,fontSize:17,fontWeight:700,marginBottom:2}}>Dashboard</h2>
+          <p style={{color:C.muted,fontSize:12}}>{data.empresa?.nome_fantasia||data.empresa?.nome||"VPBeauty"}</p>
+        </div>
       </div>
 
       {/* Banner modo demo */}
@@ -2369,24 +2393,42 @@ function Atendimentos({data,insert,update,user,abrirDados,onAbriu}) {
       <div class="total">Total: ${fmt(at.valor_final||at.valor)}</div>
       <div class="linha" style="margin-top:14px"><span>Forma de pagamento</span><strong>${at.forma_pagamento||"—"}</strong></div>
     `;
-    imprimirHTML(`Atendimento — ${at.paciente}`, corpo);
+    imprimirHTML(`Atendimento — ${at.paciente}`, corpo, data.empresa, user?.nome);
   };
 
   const imprimirRecibo = (at) => {
     const atItens = (data.atendimento_itens||[]).filter(i=>i.atendimento_id===at.id);
     const descNomes = atItens.length>0 ? atItens.map(i=>i.descricao).join(", ") : at.servico;
     const valor = Number(at.valor_final||at.valor)||0;
+    const paciente = data.pacientes.find(p=>p.id===at.paciente_id);
+    const prof = data.profissionais.find(p=>p.id===at.profissional_id);
     const corpo = `
       <h1>Recibo de Pagamento</h1>
-      <div class="sub">VPBeauty</div>
-      <p style="font-size:13px;line-height:1.7;margin-top:10px;">
-        Recebemos de <strong>${at.paciente||""}</strong> a quantia de <strong>${fmt(valor)}</strong>,
-        referente a <strong>${descNomes}</strong>, pago via <strong>${at.forma_pagamento||"—"}</strong>,
-        em ${fmtDate(today())}.
-      </p>
+      <div class="sub">Atendimento Nº ${at.id}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="quadro">
+          <div class="quadro-titulo">Cliente</div>
+          <div style="font-size:13px;font-weight:700;">${at.paciente||""}</div>
+          ${paciente?.cpf?`<div style="font-size:11px;color:#666;margin-top:2px;">CPF: ${paciente.cpf}</div>`:""}
+        </div>
+        <div class="quadro">
+          <div class="quadro-titulo">Atendimento</div>
+          <div style="font-size:12px;">Profissional: <strong>${prof?.nome||"—"}</strong></div>
+          <div style="font-size:12px;">Data: <strong>${fmtDate(at.data)}</strong></div>
+          <div style="font-size:11px;color:#666;margin-top:4px;">${descNomes}</div>
+        </div>
+      </div>
+      <div class="quadro" style="margin-bottom:16px;">
+        <div class="quadro-titulo">Valores</div>
+        <div class="linha"><span>Subtotal</span><strong>${fmt(at.valor)}</strong></div>
+        ${Number(at.desconto)>0?`<div class="linha"><span>Desconto</span><strong>-${fmt(at.desconto)}</strong></div>`:""}
+        <div class="linha" style="border-bottom:none;"><span>Forma de pagamento</span><strong>${at.forma_pagamento||"—"}</strong></div>
+        <div class="total">Total pago: ${fmt(valor)}</div>
+      </div>
+      <p style="font-size:12px;color:#444;line-height:1.6;">Recebemos de <strong>${at.paciente||""}</strong> a quantia acima referente ao atendimento descrito, em ${fmtDate(today())}.</p>
       <div class="assinatura">Assinatura</div>
     `;
-    imprimirHTML(`Recibo — ${at.paciente}`, corpo);
+    imprimirHTML(`Recibo — ${at.paciente}`, corpo, data.empresa, user?.nome);
   };
 
   const estornar = async (at) => {
@@ -3199,7 +3241,7 @@ function Procedimentos({data,insert,update,remove}) {
 
 
 /* ─── ESTOQUE (extrato + entradas) ───────────────────────────── */
-function Estoque({data,insert,update}) {
+function Estoque({data,insert,update,user}) {
   const [aba,setAba]=useState("extrato");
   const [entradaModal,setEntradaModal] = useState(false);
   const [ajusteModal,setAjusteModal] = useState(null);
@@ -3324,7 +3366,7 @@ function Estoque({data,insert,update}) {
             const corpo = `<h1>Posição de Estoque</h1><div class="sub">gerado em ${fmtDate(today())}</div>
               <table><thead><tr><th>Produto</th><th>Fornecedor</th><th>Categoria</th><th>Estoque Atual</th><th>Mínimo</th><th>Custo Unit.</th><th>Valor Total</th></tr></thead><tbody>${linhas}</tbody></table>
               <div class="total">Valor total em estoque: ${fmt(totalEstoque)}</div>`;
-            imprimirHTML("Posição de Estoque", corpo);
+            imprimirHTML("Posição de Estoque", corpo, data.empresa, user?.nome);
           }}><I.Printer s={12}/> Imprimir</Btn>
           <Btn v="g" onClick={()=>{
             const linhas = data.produtos.map(p=>
@@ -3332,7 +3374,7 @@ function Estoque({data,insert,update}) {
             ).join("");
             const corpo = `<h1>Conferência de Estoque</h1><div class="sub">gerado em ${fmtDate(today())} — preencher à mão durante a contagem física</div>
               <table><thead><tr><th>Produto</th><th>Categoria</th><th>Estoque no Sistema</th><th>Contagem Física</th><th>Diferença</th></tr></thead><tbody>${linhas}</tbody></table>`;
-            imprimirHTML("Conferência de Estoque", corpo);
+            imprimirHTML("Conferência de Estoque", corpo, data.empresa, user?.nome);
           }}><I.Clipboard s={12}/> Conferência de Estoque</Btn>
         </div>
         <ST cols={["Produto","Fornecedor","Categoria","Estoque Atual","Mínimo","Custo Unit.","Valor Total","Status","Ajuste"]}
@@ -5559,7 +5601,7 @@ function Comissoes({data, update, insert, user}) {
       <div class="total">Total: ${fmt(fechamento.valor_total)}</div>
       <div class="assinatura">Assinatura do profissional</div>
     `;
-    imprimirHTML(`Fechamento de Comissões — ${prof?.nome||""}`, corpo);
+    imprimirHTML(`Fechamento de Comissões — ${prof?.nome||""}`, corpo, data.empresa, user?.nome);
   };
 
   const todas = useMemo(()=>{
@@ -6440,7 +6482,7 @@ function Sistema({user, onLogout}) {
       case "fornecedores": return <Fornecedores {...p}/>;
       case "produtos":     return <Produtos {...p}/>;
       case "procedimentos":return <Procedimentos {...p}/>;
-      case "estoque":      return <Estoque {...p}/>;
+      case "estoque":      return <Estoque {...p} user={user}/>;
       case "financeiro":   return <Financeiro {...p} user={user}/>;
       case "precos":       return <Precos data={data} update={update}/>;
       case "relatorios":   return <Relatorios data={data} insert={insert}/>;
@@ -6460,7 +6502,10 @@ function Sistema({user, onLogout}) {
             <LogoMark size={26}/>
             <span className="cm" style={{color:C.text,fontWeight:600,fontSize:13}}>VPBeauty</span>
           </div>
-          <div style={{color:C.muted,fontSize:9,marginLeft:33}}>{user.clinica}</div>
+          <div style={{color:C.muted,fontSize:9,marginLeft:33,display:"flex",alignItems:"center",gap:4}}>
+            {data?.empresa?.logo_base64&&<img src={data.empresa.logo_base64} alt="" style={{width:12,height:12,objectFit:"contain",borderRadius:2}}/>}
+            {data?.empresa?.nome_fantasia||user.clinica}
+          </div>
           <div style={{marginLeft:33,marginTop:3,display:"flex",alignItems:"center",gap:5}}>
             <span style={{fontSize:8,fontWeight:700,padding:"1px 6px",borderRadius:10,background:isSupervisor?C.accentSoft:C.info+"18",color:isSupervisor?C.accent:C.info,textTransform:"uppercase",letterSpacing:.5}}>
               {isSupervisor?"Supervisor":"Profissional"}
