@@ -566,20 +566,14 @@ const imprimirAnamnese = (anamnese, paciente, profissionais, empresa, emitidoPor
 
 /* ─── ÍCONES ─────────────────────────────────────────────────── */
 /* ─── LOGO VPBEAUTY ──────────────────────────────────────────── */
-const Logo = ({size=40}) => (
-  <svg width={size} height={size*0.54} viewBox="0 0 260 140" role="img" aria-label="VPBeauty">
-    <rect x="4" y="4" width="252" height="132" rx="10" fill="#F1E9FC" stroke="#B8960C" strokeWidth="1.5"/>
-    <rect x="12" y="12" width="236" height="116" rx="4" fill="none" stroke="#B8960C" strokeWidth="0.5"/>
-    <text x="130" y="80" textAnchor="middle" fontFamily="Georgia, serif" fontSize="38" fontWeight="400" fill="#5B3F8C" letterSpacing="5">VP</text>
-    <text x="130" y="106" textAnchor="middle" fontFamily="Georgia, serif" fontSize="14" fill="#B8960C" letterSpacing="6">BEAUTY</text>
-  </svg>
+/* Logos em /public/logos — versões de cor para fundo claro (todo o sistema é claro).
+   Logo: marca completa (sem fundo) · LogoMark: ícone em tile ameixa, para cabeçalhos compactos */
+const Logo = ({size=240}) => (
+  <img src={`${process.env.PUBLIC_URL}/logos/VPBeauty-logo-cores-transparente.svg`} width={size} alt="VPBeauty" style={{display:"block",height:"auto"}}/>
 );
 
 const LogoMark = ({size=28}) => (
-  <svg width={size} height={size} viewBox="0 0 40 40" role="img" aria-label="VPBeauty">
-    <rect x="1" y="1" width="38" height="38" rx="9" fill="#F1E9FC" stroke="#B8960C" strokeWidth="1"/>
-    <text x="20" y="26" textAnchor="middle" fontFamily="Georgia, serif" fontSize="16" fontWeight="400" fill="#5B3F8C" letterSpacing="1">VP</text>
-  </svg>
+  <img src={`${process.env.PUBLIC_URL}/logos/VPBeauty-icone-fundo-ameixa.svg`} width={size} height={size} alt="VPBeauty" style={{display:"block",flexShrink:0}}/>
 );
 
 const I = {
@@ -1564,7 +1558,7 @@ function LoginModal({onClose, onLogin, onGoSignup}) {
 
         <div style={{background:"linear-gradient(135deg,#7C5CBF08,transparent)",padding:"28px 24px 18px",borderBottom:`1px solid ${T.border}`,textAlign:"center"}}>
           <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
-            <Logo size={160}/>
+            <Logo size={220}/>
           </div>
           <div style={{color:T.mutedLt,fontSize:12,marginTop:2}}>Entre com sua conta</div>
         </div>
@@ -1670,7 +1664,7 @@ function ResetPasswordModal({accessToken, onDone}) {
     <div style={{position:"fixed",inset:0,background:"#4A3D6280",zIndex:2100,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(8px)"}}>
       <div className="fu" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:20,width:"100%",maxWidth:380,overflow:"hidden"}}>
         <div style={{background:"linear-gradient(135deg,#7C5CBF08,transparent)",padding:"28px 24px 18px",borderBottom:`1px solid ${T.border}`,textAlign:"center"}}>
-          <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo size={160}/></div>
+          <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo size={220}/></div>
           <div style={{color:T.mutedLt,fontSize:12,marginTop:2}}>Criar nova senha</div>
         </div>
         <div style={{padding:"18px 24px"}}>
